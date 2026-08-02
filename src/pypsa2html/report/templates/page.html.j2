@@ -138,14 +138,18 @@ var P2H = {
   node: {{ node.code | tojson }},
   scenario: {{ scenario.name | tojson }},
   page: {{ page.id | tojson }},
-  shared: {{ page.shared | tojson }}
+  shared: {{ page.shared | tojson }},
+  // Relative path from this page's directory to each scenario's output
+  // directory. Empty when they share one folder; "../<other>/html/" when each
+  // scenario's pages sit beside its own results.
+  prefix: {{ scenario_prefixes | tojson }}
 };
 function p2hGo(what, value) {
   var node = what === 'node' ? value : P2H.node;
   var scen = what === 'scenario' ? value : P2H.scenario;
   var name = P2H.shared ? (P2H.page + '_' + scen + '.html')
                         : (node + '_' + P2H.page + '_' + scen + '.html');
-  window.location.href = name;
+  window.location.href = (P2H.prefix[scen] || '') + name;
 }
 </script>
 </body>

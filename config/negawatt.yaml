@@ -55,7 +55,7 @@ landing:
   page: overview
 
 output:
-  dir: results/pypsa2html
+  dir: results/{scenario}/html
   pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true
   plotly: cdn

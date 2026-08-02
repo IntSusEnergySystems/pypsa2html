@@ -38,7 +38,10 @@ landing:
   page: overview
 
 output:
-  dir: html
+  # May contain {scenario}. With it, each scenario's pages land beside that
+  # scenario's own results (csvs/, graphs/, networks/) and the cross-scenario
+  # links become relative paths. Without it, all scenarios share one folder.
+  dir: "{scenario}/html"
   pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true     # one maps page for the whole site, not one per node
   plotly: cdn           # 'cdn' (small pages, needs network) or 'inline' (offline)

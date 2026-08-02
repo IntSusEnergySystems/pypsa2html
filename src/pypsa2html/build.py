@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -114,6 +115,24 @@ def _build_section(ctx: BuildContext, node, section: Section) -> RenderedSection
     )
 
 
+def _scenario_prefixes(config: Config, current: str) -> dict[str, str]:
+    """Relative href prefix from ``current``'s output dir to each scenario's.
+
+    Empty string when they share a directory; ``../<other>/html/`` when
+    ``output.dir`` is per-scenario. Keeping the whole site relative means it
+    works from a file:// path, a web server, or an S3 prefix without change.
+    """
+    here = config.output_dir(current)
+    prefixes = {}
+    for scenario in config.scenarios:
+        there = config.output_dir(scenario.name)
+        if there == here:
+            prefixes[scenario.name] = ""
+        else:
+            prefixes[scenario.name] = os.path.relpath(there, here).replace(os.sep, "/") + "/"
+    return prefixes
+
+
 def build_scenario(
     config: Config,
     scenario_name: str,
@@ -129,8 +148,9 @@ def build_scenario(
     manifest = manifest or load_manifest(
         enable=config.plots, include_pages=config.output.pages
     )
-    out_dir = config.output_dir()
+    out_dir = config.output_dir(scenario_name)
     out_dir.mkdir(parents=True, exist_ok=True)
+    scenario_prefixes = _scenario_prefixes(config, scenario_name)
 
     shared_done: set[str] = set()
 
@@ -166,6 +186,7 @@ def build_scenario(
                 scenarios=config.scenarios,
                 project=config.project,
                 plotly=config.output.plotly,
+                scenario_prefixes=scenario_prefixes,
             )
             path = out_dir / page.filename(node.code, scenario_name)
             path.write_text(html, encoding="utf-8")
@@ -199,9 +220,21 @@ def build_site(
 
     if config.output.write_index and report.written:
         landing = _landing_filename(config, manifest)
-        index = write_index(config.output_dir(), landing)
+        landing_scenario = config.landing_scenario.name
+        landing_dir = config.output_dir(landing_scenario)
+
+        index = write_index(landing_dir, landing)
         report.written.append(index)
-        logger.info("landing page: %s -> %s", index.name, landing)
+        logger.info("landing page: %s -> %s", index, landing)
+
+        # With a per-scenario layout each scenario's pages live in its own
+        # results tree, so add one index at their common root too.
+        if config.output_is_per_scenario:
+            root = config.common_output_root()
+            rel = os.path.relpath(landing_dir / landing, root).replace(os.sep, "/")
+            root_index = write_index(root, rel)
+            report.written.append(root_index)
+            logger.info("site entry point: %s -> %s", root_index, rel)
 
     logger.info(report.summary())
     return report

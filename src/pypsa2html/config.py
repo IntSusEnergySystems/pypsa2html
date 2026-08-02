@@ -167,11 +167,43 @@ class Config:
         sc = self.scenario(scenario)
         return (self.root / (sc.resources_dir or sc.results_dir)).resolve()
 
+    @property
+    def output_is_per_scenario(self) -> bool:
+        """True when ``output.dir`` contains a ``{scenario}`` placeholder."""
+        return "{scenario}" in self.output.dir
+
     def output_dir(self, scenario: str | None = None) -> Path:
-        out = Path(self.output.dir)
+        """Directory a scenario's pages are written to.
+
+        ``output.dir`` may contain ``{scenario}``, which puts each scenario's
+        HTML next to that scenario's other results (``csvs/``, ``graphs/``,
+        ``networks/``) so the whole tree uploads as one unit. Without the
+        placeholder every scenario shares one directory.
+        """
+        pattern = self.output.dir
+        if self.output_is_per_scenario:
+            if scenario is None:
+                raise ValueError(
+                    "output.dir contains '{scenario}' so a scenario name is required; "
+                    "call output_dir(scenario)"
+                )
+            pattern = pattern.format(scenario=scenario)
+        out = Path(pattern)
         if not out.is_absolute():
             out = self.root / out
         return out.resolve()
+
+    def common_output_root(self) -> Path:
+        """Deepest directory containing every scenario's output.
+
+        Where the top-level ``index.html`` goes when output is per-scenario.
+        """
+        if not self.output_is_per_scenario:
+            return self.output_dir()
+        import os
+
+        dirs = [str(self.output_dir(s.name)) for s in self.scenarios]
+        return Path(os.path.commonpath(dirs)) if len(dirs) > 1 else Path(dirs[0]).parent
 
 
 def _as_dataclass(cls, data: dict):

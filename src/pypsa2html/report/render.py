@@ -92,8 +92,16 @@ def render_page(
     project,
     plotly: str = "cdn",
     scenario_note: str = "",
+    scenario_prefixes: dict[str, str] | None = None,
 ) -> str:
-    """Render one HTML page."""
+    """Render one HTML page.
+
+    ``scenario_prefixes`` maps a scenario name to the relative path from this
+    page's directory to that scenario's output directory, so the scenario
+    switcher works whether all scenarios share one folder or each lives beside
+    its own results tree.
+    """
+    prefixes = scenario_prefixes or {s.name: "" for s in scenarios}
     nav = [
         {
             "id": p.id,
@@ -114,7 +122,8 @@ def render_page(
         node=node,
         nodes=list(nodes),
         scenario=scenario,
-        scenarios=list(scenarios),
+        scenarios=[{"name": s.name, "label": s.label} for s in scenarios],
+        scenario_prefixes={s.name: prefixes.get(s.name, "") for s in scenarios},
         plotly_js=PLOTLY_CDN if plotly == "cdn" else "",
         scenario_note=scenario_note,
         version=__version__,

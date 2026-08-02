@@ -51,7 +51,9 @@ landing:
   page: overview
 
 output:
-  dir: results/times-pypsa/html
+  # {scenario} puts each scenario's pages beside that scenario's own csvs/,
+  # graphs/ and networks/, so the whole results tree uploads to S3 as one unit.
+  dir: results/times-pypsa/{scenario}/html
   pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true
   plotly: cdn

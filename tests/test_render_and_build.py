@@ -167,6 +167,82 @@ def test_landing_falls_back_when_the_page_is_disabled(minimal_config):
     assert _landing_filename(cfg, manifest) == "AA_sankeys_demo.html"
 
 
+def _two_scenario_config(tmp_path, output_dir):
+    import yaml
+
+    cfg = {
+        "root": str(tmp_path),
+        "scenarios": [
+            {"name": "alpha", "results_dir": "results/alpha"},
+            {"name": "beta", "results_dir": "results/beta"},
+        ],
+        "output": {"dir": output_dir},
+    }
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    return load_config(path)
+
+
+def test_per_scenario_output_dir(tmp_path):
+    """HTML must land beside each scenario's own csvs/graphs/networks."""
+    cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
+    assert cfg.output_is_per_scenario
+    assert cfg.output_dir("alpha") == (tmp_path / "results/alpha/html").resolve()
+    assert cfg.output_dir("beta") == (tmp_path / "results/beta/html").resolve()
+
+
+def test_shared_output_dir_still_supported(tmp_path):
+    cfg = _two_scenario_config(tmp_path, "results/html")
+    assert not cfg.output_is_per_scenario
+    assert cfg.output_dir("alpha") == cfg.output_dir("beta")
+
+
+def test_per_scenario_dir_requires_a_scenario(tmp_path):
+    cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
+    with pytest.raises(ValueError, match="a scenario name is required"):
+        cfg.output_dir()
+
+
+def test_scenario_prefixes_are_relative(tmp_path):
+    from pypsa2html.build import _scenario_prefixes
+
+    cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
+    prefixes = _scenario_prefixes(cfg, "alpha")
+    assert prefixes["alpha"] == ""
+    assert prefixes["beta"] == "../../beta/html/"
+
+
+def test_scenario_prefixes_empty_when_sharing_a_dir(tmp_path):
+    from pypsa2html.build import _scenario_prefixes
+
+    cfg = _two_scenario_config(tmp_path, "results/html")
+    assert _scenario_prefixes(cfg, "alpha") == {"alpha": "", "beta": ""}
+
+
+def test_common_output_root(tmp_path):
+    cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
+    assert cfg.common_output_root() == (tmp_path / "results").resolve()
+
+
+def test_scenario_switcher_uses_the_prefix(node_set, scenarios, minimal_config):
+    """A page must link across scenario directories, not to a bare filename."""
+    project = load_config(minimal_config).project
+    manifest = load_manifest()
+    page = manifest["emissions"]
+    html = render_page(
+        page=page,
+        manifest=manifest,
+        sections=[RenderedSection(id="s", title="S", body="")],
+        node=node_set["BEWAL"],
+        nodes=node_set,
+        scenario=scenarios[0],
+        scenarios=scenarios,
+        project=project,
+        scenario_prefixes={scenarios[0].name: "../../other/html/"},
+    )
+    assert '"../../other/html/"' in html
+
+
 def test_write_index_points_at_the_landing_page(tmp_path):
     path = write_index(tmp_path, "BEWAL_overview_ref.html")
     text = path.read_text()
