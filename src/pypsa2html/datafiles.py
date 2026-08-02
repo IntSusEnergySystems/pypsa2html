@@ -18,6 +18,11 @@ Tables
     PyPSA carrier/port -> internal code, used by the extraction step.
 ``regions.csv``
     Labels, colours and ISO codes for known regions (used by the choropleths).
+    Optional ``gdp_bneur`` column for cost-map denominators (billion EUR).
+``tech_groups.csv``
+    Carrier substring/exact patterns -> display groups per chart view.
+``tech_colors.csv``
+    Technology and group colours (#rrggbb), merged into chart palettes as a copy.
 ``domestic_gas_production.csv`` / ``domestic_oil_production.csv``
     Exogenous domestic fossil production per region and horizon, in TWh/year.
 """
@@ -26,6 +31,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +40,11 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent / "data"
+
+#: Chart views with rows in ``tech_groups.csv``.
+TECH_VIEWS = frozenset({"costs", "capacities", "dispatch", "map", "clustered"})
+
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 #: The ``Type`` values recognised in ``nodes.csv``.
 NODE_TYPES = frozenset(
@@ -209,3 +220,55 @@ def load_taxonomy(data_dir: str | None = None) -> Taxonomy:
     )
     _validate(tax)
     return tax
+
+
+def _validate_tech_groups(df: pd.DataFrame) -> None:
+    required = {"pattern", "view", "group", "order"}
+    missing = required - set(df.columns)
+    if missing:
+        raise TaxonomyError(
+            f"tech_groups.csv: missing column(s) {sorted(missing)}; required: {sorted(required)}"
+        )
+    bad_views = sorted(set(df["view"].dropna()) - TECH_VIEWS)
+    if bad_views:
+        raise TaxonomyError(
+            f"tech_groups.csv: unknown view(s) {bad_views}; known: {sorted(TECH_VIEWS)}"
+        )
+
+
+def _validate_tech_colors(df: pd.DataFrame) -> None:
+    required = {"name", "color"}
+    missing = required - set(df.columns)
+    if missing:
+        raise TaxonomyError(
+            f"tech_colors.csv: missing column(s) {sorted(missing)}; required: {sorted(required)}"
+        )
+    colors = df["color"].dropna().astype(str)
+    bad = colors[~colors.str.match(_HEX_COLOR)]
+    if len(bad):
+        raise TaxonomyError(
+            f"tech_colors.csv: {len(bad)} colour(s) are not #rrggbb: "
+            f"{bad.head(5).tolist()}"
+        )
+
+
+@functools.lru_cache(maxsize=4)
+def load_tech_groups(data_dir: str | None = None) -> pd.DataFrame:
+    """Load and validate ``tech_groups.csv`` (cached).
+
+    Patterns are matched case-sensitively against the carrier name after
+    :func:`~pypsa2html.charts.base.normalize_carrier` (the legacy
+    ``rename_techs`` step).  A pattern wrapped in ``^…$`` is an exact match;
+    otherwise the pattern is a substring test (legacy ``in``).
+    """
+    df = _read("tech_groups.csv", Path(data_dir) if data_dir else None)
+    _validate_tech_groups(df)
+    return df
+
+
+@functools.lru_cache(maxsize=4)
+def load_tech_colors(data_dir: str | None = None) -> pd.DataFrame:
+    """Load and validate ``tech_colors.csv`` (cached)."""
+    df = _read("tech_colors.csv", Path(data_dir) if data_dir else None)
+    _validate_tech_colors(df)
+    return df

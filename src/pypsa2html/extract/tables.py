@@ -1,0 +1,496 @@
+"""Cost, capacity and demand tables from PyPSA-Eur ``csvs/nodal_*.csv``.
+
+Replaces the legacy ``costs`` / ``capacities`` / ``plot_demands`` pipeline in
+``Pypsa_results.py``.  Horizons are read from the ``planning_horizon`` header
+row (the original renamed columns positionally, which forced pypsa-wal to
+alias its 2025 horizon as ``2020``).  Node membership uses the ``location``
+column exactly -- never ``.str[:2]`` or ``.filter(like=)``.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Literal
+
+import pandas as pd
+
+from ..charts.base import OMIT_GROUP, apply_tech_map, omit_carriers
+from ..context import BuildContext
+from .capacity_filter import capacity_keys_from_network
+
+logger = logging.getLogger(__name__)
+
+CostKind = Literal["total", "capital", "marginal", "clustered"]
+CapacityKind = Literal["power", "storage"]
+
+#: Carriers dropped from nodal tables when transmission is attributed separately.
+_TRANSMISSION_CARRIERS = frozenset({"AC", "DC"})
+
+#: Display renames for energy-storage Stores (after the bus-carrier filter).
+_STORAGE_RENAMES = {
+    "urban central water pits": "Thermal Energy Storage",
+    "urban central water tanks": "Thermal Energy Storage",
+    "rural water tanks": "Thermal Energy Storage",
+    "urban decentral water tanks": "Thermal Energy Storage",
+    "battery": "Grid-scale battery",
+    "home battery": "Grid-scale battery",
+    "gas": "Gas storage",
+}
+
+#: Energy-flow codes -> (demand group, sector label) for sectoral demands.
+#: Port of the ``mapping`` / ``mapping_eu`` dicts in ``plot_demands``.
+_DEMAND_CODES: dict[str, tuple[str, str]] = {
+    "preshydcfind": ("hydrogen", "hydrogen for industry"),
+    "preshydcfneind": ("Non-energy", "H2 for non-energy"),
+    "preshydwati": ("hydrogen", "shipping hydrogen"),
+    "preslqfcffrewati": ("oil", "shipping oil"),
+    "preselccfagr": ("electricity", "agriculture electricity"),
+    "presvapcfagr": ("heat", "agriculture heat"),
+    "prespetcfagr": ("oil", "agriculture oil"),
+    "preselccfres": ("electricity", "electricity demand of residential and tertairy"),
+    "presgazcfind": ("methane", "gas for Industry"),
+    "presgazcfindd": ("methane", "gas for Industry"),
+    "preselccfind": ("electricity", "electricity for Industry"),
+    "preslqfcfavi": ("oil", "aviation oil demand"),
+    "preselccftra": ("electricity", "land transport EV"),
+    "preshydcftra": ("hydrogen", "land transport hydrogen demand"),
+    "preslqfcftra": ("oil", "oil to transport demand"),
+    "presvapcfind": ("heat", "low-temperature heat for industry"),
+    "prespetcfneind": ("Non-energy", "naphtha for non-energy"),
+    "preserail": ("electricity", "electricity demand for rail network"),
+    "presvapcfdhs": ("heat", "Residential and tertiary DH demand"),
+    "demandheat": ("heat", "Residential and tertiary heat demand"),
+    "demandheata": ("heat", "Residential and tertiary heat demand"),
+    "demandheatb": ("heat", "Residential and tertiary heat demand"),
+    "demandheats": ("heat", "Residential and tertiary heat demand"),
+    "presenccfind": ("solid biomass", "solid biomass for Industry"),
+    "presenccfindd": ("solid biomass", "solid biomass for Industry"),
+    "preammind": ("hydrogen", "NH3"),
+    "prespetcfind": ("oil", "Oil for industry"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Nodal CSV parsing
+# ---------------------------------------------------------------------------
+
+def parse_nodal_csv(raw: pd.DataFrame) -> pd.DataFrame:
+    """Parse a PyPSA-Eur multi-header nodal CSV into a flat frame.
+
+    Returns columns for every meta field named on the header row (``cost``,
+    ``component``, ``location``, ``carrier``, …) plus one numeric column per
+    planning horizon, labelled with the year string from the
+    ``planning_horizon`` row.
+    """
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+
+    labels = raw.iloc[:, 0].astype(str)
+    ph_hits = labels[labels == "planning_horizon"]
+    if ph_hits.empty:
+        raise ValueError("nodal CSV has no 'planning_horizon' header row")
+    ph_idx = int(ph_hits.index[0])
+    header_idx = ph_idx + 1
+    if header_idx >= len(raw):
+        raise ValueError("nodal CSV truncated after planning_horizon row")
+
+    year_cols: list[int] = []
+    years: list[str] = []
+    for j in range(raw.shape[1]):
+        val = raw.iat[ph_idx, j]
+        if pd.isna(val):
+            continue
+        text = str(val).strip()
+        if not text or text == "planning_horizon":
+            continue
+        try:
+            years.append(str(int(float(text))))
+            year_cols.append(j)
+        except ValueError:
+            continue
+    if not years:
+        raise ValueError("nodal CSV planning_horizon row has no year columns")
+
+    meta_cols: list[tuple[int, str]] = []
+    for j in range(raw.shape[1]):
+        if j in year_cols:
+            continue
+        name = raw.iat[header_idx, j]
+        if pd.isna(name) or str(name).strip() == "":
+            continue
+        meta_cols.append((j, str(name).strip()))
+
+    body = raw.iloc[header_idx + 1 :].copy()
+    out = pd.DataFrame({name: body.iloc[:, j].to_numpy() for j, name in meta_cols})
+    for year, j in zip(years, year_cols, strict=True):
+        out[year] = pd.to_numeric(body.iloc[:, j].to_numpy(), errors="coerce")
+    return out.reset_index(drop=True)
+
+
+def _load_nodal(ctx: BuildContext, relpath: str) -> pd.DataFrame | None:
+    """Cached parse of a nodal CSV under ``results/``."""
+    key = ("nodal_table", relpath)
+    if key in ctx._files:
+        cached = ctx._files[key]
+        return None if cached is None else cached.copy()
+
+    raw = ctx.read_csv(relpath, base="results", header=None)
+    if raw is None:
+        ctx._files[key] = None
+        return None
+    try:
+        parsed = parse_nodal_csv(raw)
+    except ValueError as exc:
+        logger.warning("could not parse %s: %s", relpath, exc)
+        ctx._files[key] = None
+        return None
+    ctx._files[key] = parsed
+    return parsed.copy()
+
+
+def _filter_location(df: pd.DataFrame, ctx: BuildContext, node: str) -> pd.DataFrame:
+    if "location" not in df.columns:
+        logger.warning("nodal table has no 'location' column")
+        return df.iloc[0:0]
+    if ctx.is_aggregate(node):
+        return df
+    return df.loc[df["location"].astype(str) == str(node)]
+
+
+def _transmission_enabled(ctx: BuildContext) -> bool:
+    """Whether AC/DC transmission rows should be attributed separately.
+
+    ``features.transmission_costs: null`` (default) means auto-on when the
+    model has more than one real node -- meaningful EU-wide, noise for a
+    single-region study.
+    """
+    flag = ctx.config.features.transmission_costs
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    return len(ctx.nodes.real_codes) > 1
+
+
+def _capacity_filter_mode(ctx: BuildContext) -> str:
+    """``bus_carrier`` (default) or ``off`` — see ``features.capacity_filter``."""
+    raw = ctx.config.raw.get("features", {}) or {}
+    mode = raw.get("capacity_filter", ctx.config.features.capacity_filter)
+    if mode is None:
+        return "bus_carrier"
+    return str(mode)
+
+
+def _capacity_filter_sets(
+    ctx: BuildContext,
+) -> tuple[frozenset[tuple[str, str]] | None, frozenset[str] | None]:
+    """``(power_keys, storage_carriers)`` or ``(None, None)`` when filter is off.
+
+    ``power_keys`` are ``(component, carrier)`` pairs.  Cached on ``ctx``.
+    """
+    if _capacity_filter_mode(ctx) == "off":
+        return None, None
+
+    cache_key = "_capacity_filter_sets"
+    cached = getattr(ctx, cache_key, None)
+    if cached is None:
+        try:
+            n = ctx.networks.first()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "capacity filter: cannot load a network (%s); "
+                "falling back to optional tech_groups __omit__ only",
+                exc,
+            )
+            cached = (None, None)
+        else:
+            cached = capacity_keys_from_network(n)
+            logger.info(
+                "capacity filter: %d power keys / %d storage carriers from network",
+                len(cached[0]),
+                len(cached[1]),
+            )
+        setattr(ctx, cache_key, cached)
+    return cached
+
+
+def _apply_capacity_filter(
+    df: pd.DataFrame, ctx: BuildContext, kind: CapacityKind
+) -> pd.DataFrame:
+    """Restrict ``df`` to topology-approved component/carrier pairs."""
+    power_keys, storage_carriers = _capacity_filter_sets(ctx)
+    if kind == "storage":
+        if storage_carriers is None or "carrier" not in df.columns:
+            return df
+        return df.loc[df["carrier"].astype(str).isin(storage_carriers)]
+    if power_keys is None:
+        return df
+    if "carrier" not in df.columns:
+        return df
+    if "component" in df.columns:
+        keys = pd.Series(
+            list(
+                zip(
+                    df["component"].astype(str),
+                    df["carrier"].astype(str),
+                    strict=False,
+                )
+            ),
+            index=df.index,
+        )
+        return df.loc[keys.isin(power_keys)]
+    # No component column: keep any carrier that appears in at least one key.
+    carriers = {c for _comp, c in power_keys}
+    return df.loc[df["carrier"].astype(str).isin(carriers)]
+
+
+def _group_techs(df: pd.DataFrame, years: list[str], view: str) -> pd.DataFrame:
+    """Map carriers to display groups and sum."""
+    if df.empty or "carrier" not in df.columns:
+        return pd.DataFrame(columns=years)
+    work = df.copy()
+    # Optional name denylist in tech_groups.csv (group ``__omit__``).
+    if "carrier" in work.columns:
+        work = work.loc[~omit_carriers(work["carrier"].astype(str), view)]
+    if work.empty:
+        return pd.DataFrame(columns=years)
+    work = work.copy()
+    work["tech"] = apply_tech_map(work["carrier"].astype(str), view)
+    work = work.loc[work["tech"] != OMIT_GROUP]
+    if work.empty:
+        return pd.DataFrame(columns=years)
+    grouped = work.groupby("tech", sort=False)[years].sum()
+    # Drop all-zero / non-finite rows (load shedding is often +inf).
+    grouped = grouped.replace([float("inf"), float("-inf")], float("nan")).dropna(how="any")
+    return grouped.loc[~(grouped == 0).all(axis=1)]
+
+
+def _merge_base_year(
+    table: pd.DataFrame,
+    ctx: BuildContext,
+    node: str,
+    *,
+    relpath: str,
+    tech_col: str = "tech",
+) -> pd.DataFrame:
+    """Optionally prepend an exogenous base-year column from country_csvs."""
+    base = ctx.config.model.base_year
+    if base is None:
+        return table
+    base_s = str(base)
+    hist = ctx.read_csv(relpath, base="results")
+    if hist is None:
+        logger.warning("base_year=%s set but %s missing", base, relpath)
+        return table
+    hist = hist.copy()
+    if tech_col in hist.columns:
+        hist = hist.set_index(tech_col)
+    elif hist.index.name in (None, tech_col) or "tech" in str(hist.columns[0]).lower():
+        # already indexed, or first column is tech
+        if hist.index.name is None and hist.columns[0] in ("tech", "Unnamed: 0"):
+            hist = hist.set_index(hist.columns[0])
+    # Find a column to use as the base year (legacy used "2020" then renamed)
+    year_col = None
+    for candidate in (base_s, "2020", "2019"):
+        if candidate in hist.columns:
+            year_col = candidate
+            break
+    if year_col is None:
+        logger.warning("no base-year column in %s", relpath)
+        return table
+
+    series = pd.to_numeric(hist[year_col], errors="coerce").fillna(0.0)
+    series.index = apply_tech_map(pd.Series(series.index.astype(str)), "costs").values
+    series = series.groupby(level=0).sum()
+
+    out = table.copy()
+    if base_s not in out.columns:
+        # Insert at the left if it's in year_columns
+        cols = [c for c in ctx.year_columns if c == base_s or c in out.columns]
+        out = out.reindex(columns=cols, fill_value=0.0)
+    out[base_s] = series.reindex(out.index).fillna(0.0)
+    # Techs only in history
+    missing = series.index.difference(out.index)
+    if len(missing):
+        extra = pd.DataFrame(0.0, index=missing, columns=out.columns)
+        extra[base_s] = series.loc[missing]
+        out = pd.concat([out, extra])
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def cost_table(
+    ctx: BuildContext, node: str, kind: CostKind = "total"
+) -> pd.DataFrame | None:
+    """Technology costs for ``node``. Index=tech, columns=``ctx.year_columns``."""
+    raw = _load_nodal(ctx, "csvs/nodal_costs.csv")
+    if raw is None:
+        return None
+
+    df = _filter_location(raw, ctx, node)
+    if df.empty:
+        logger.warning("cost_table: no rows for node %s", node)
+        return None
+
+    years = list(ctx.year_columns)
+    # Drop exogenous base year from the solved-horizon slice; merge later.
+    solved = [y for y in years if y in df.columns]
+    if not solved:
+        # year_columns may include base_year not present in nodal CSV
+        solved = [c for c in df.columns if str(c).isdigit()]
+        if not solved:
+            logger.warning("cost_table: no year columns for node %s", node)
+            return None
+
+    if kind in ("capital", "marginal") and "cost" in df.columns:
+        df = df.loc[df["cost"].astype(str) == kind]
+    elif kind == "total" and "cost" in df.columns:
+        pass  # sum all cost types
+    elif kind == "clustered":
+        pass
+    else:
+        if kind in ("capital", "marginal"):
+            logger.warning("cost_table: no 'cost' column; cannot filter kind=%s", kind)
+            return None
+
+    if _transmission_enabled(ctx):
+        df = df.loc[~df["carrier"].astype(str).isin(_TRANSMISSION_CARRIERS)]
+
+    view = "clustered" if kind == "clustered" else "costs"
+    # For clustered, first map to costs groups then to clustered buckets.
+    if kind == "clustered":
+        mid = _group_techs(df, solved, "costs")
+        if mid.empty:
+            return None
+        mapped = apply_tech_map(pd.Series(mid.index.astype(str)), "clustered")
+        mid = mid.copy()
+        mid.index = mapped.values
+        table = mid.groupby(level=0).sum()
+        table = table.loc[~(table == 0).all(axis=1)]
+    else:
+        table = _group_techs(df, solved, view)
+
+    if table.empty:
+        return None
+
+    table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+
+    if kind != "clustered" and ctx.config.model.base_year is not None:
+        table = _merge_base_year(
+            table, ctx, node, relpath=f"country_csvs/costs_{node}.csv"
+        )
+        table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+
+    return table.sort_index()
+
+
+def capacity_table(
+    ctx: BuildContext, node: str, kind: CapacityKind = "power"
+) -> pd.DataFrame | None:
+    """Installed capacities for ``node``. Power in MW; storage in MWh.
+
+    By default (``features.capacity_filter: bus_carrier``) only carriers that
+    attach to electricity / heat / H2 service buses — or energy-storage Store
+    buses — are kept.  See :mod:`pypsa2html.extract.capacity_filter`.
+    """
+    raw = _load_nodal(ctx, "csvs/nodal_capacities.csv")
+    if raw is None:
+        return None
+
+    df = _filter_location(raw, ctx, node)
+    if df.empty:
+        logger.warning("capacity_table: no rows for node %s", node)
+        return None
+
+    if kind == "storage":
+        if "component" in df.columns:
+            df = df.loc[df["component"].astype(str) == "Store"]
+        else:
+            logger.warning("capacity_table: no component column for storage filter")
+            return None
+    elif kind == "power":
+        if _transmission_enabled(ctx) and "carrier" in df.columns:
+            df = df.loc[~df["carrier"].astype(str).isin(_TRANSMISSION_CARRIERS)]
+        # Exclude pure Store energy capacities from the power chart
+        if "component" in df.columns:
+            df = df.loc[df["component"].astype(str) != "Store"]
+
+    df = _apply_capacity_filter(df, ctx, kind)
+
+    years_in_csv = [c for c in df.columns if str(c).isdigit()]
+    if not years_in_csv:
+        return None
+
+    if kind == "storage":
+        if df.empty:
+            return None
+        work = df.copy()
+        carriers = work["carrier"].astype(str)
+        techs = []
+        for carrier in carriers:
+            if carrier in _STORAGE_RENAMES:
+                techs.append(_STORAGE_RENAMES[carrier])
+            else:
+                techs.append(apply_tech_map(pd.Series([carrier]), "capacities").iloc[0])
+        work["tech"] = techs
+        table = work.groupby("tech", sort=False)[years_in_csv].sum()
+        table = table.replace([float("inf"), float("-inf")], float("nan")).dropna(how="any")
+    else:
+        table = _group_techs(df, years_in_csv, "capacities")
+
+    if table.empty:
+        return None
+
+    table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+    table = table.loc[~(table == 0).all(axis=1)]
+
+    if kind == "power" and ctx.config.model.base_year is not None:
+        table = _merge_base_year(
+            table, ctx, node, relpath=f"country_csvs/capacities_{node}.csv"
+        )
+        table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+
+    return table.sort_index()
+
+
+def demand_table(ctx: BuildContext, node: str) -> pd.DataFrame | None:
+    """Sectoral final-energy demands. Index=sector label, columns=years.
+
+    Built from the energy-flow extraction when a network is available; returns
+    ``None`` when flows cannot be produced.
+    """
+    from .flows import energy_flows
+
+    try:
+        flows = energy_flows(ctx, node)
+    except Exception as exc:  # noqa: BLE001 - builders must not raise
+        logger.warning("demand_table: energy_flows failed for %s: %s", node, exc)
+        return None
+    if flows is None or flows.empty:
+        return None
+
+    years = [y for y in ctx.year_columns if y in flows.columns]
+    if not years:
+        return None
+
+    rows = []
+    for code, (group, sector) in _DEMAND_CODES.items():
+        hit = flows.loc[flows["code"] == code]
+        if hit.empty:
+            continue
+        vals = hit[years].sum()
+        rows.append({"group": group, "sector": sector, **vals.to_dict()})
+
+    if not rows:
+        logger.warning("demand_table: no demand codes matched for node %s", node)
+        return None
+
+    out = pd.DataFrame(rows).groupby("sector", sort=False)[years].sum()
+    out = out.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+    out.attrs["groups"] = (
+        pd.DataFrame(rows).drop_duplicates("sector").set_index("sector")["group"]
+    )
+    return out.loc[~(out == 0).all(axis=1)]

@@ -1,0 +1,266 @@
+pattern,view,group,order
+heat pump,costs,power-to-heat,0
+resistive heater,costs,power-to-heat,1
+^H2 Electrolysis$,costs,power-to-gas,2
+^methanation$,costs,power-to-gas,3
+^helmeth$,costs,power-to-gas,4
+^H2 liquefaction$,costs,power-to-gas,5
+^electricity distribution grid$,costs,distribution network,6
+^CHP$,costs,CHP,7
+^H2 Fuel Cell$,costs,CHP,8
+^H2 turbine$,costs,CHP,9
+^battery charger$,costs,battery storage,10
+^battery discharger$,costs,battery storage,11
+^battery$,costs,battery storage,12
+^Li ion$,costs,battery storage,13
+^EV charger$,costs,battery storage,14
+^V2G$,costs,battery storage,15
+^biomass boiler$,costs,boilers,16
+^oil boiler$,costs,boilers,17
+^gas boiler$,costs,boilers,18
+solar,costs,solar,19
+^Fischer-Tropsch$,costs,power-to-liquid,20
+offshore wind,costs,offshore wind,21
+^co2 sequestered$,costs,CCUS,22
+^CO2 sequestration$,costs,CCUS,23
+^co2$,costs,CCUS,24
+^SMR CC$,costs,CCUS,25
+^process emissions CC$,costs,CCUS,26
+^process emissions$,costs,CCUS,27
+^solid biomass for industry CC$,costs,CCUS,28
+^gas for industry CC$,costs,CCUS,29
+^CO2 pipeline$,costs,CCUS,30
+^biomass$,costs,biomass fuel & techs,31
+^solid biomass$,costs,biomass fuel & techs,32
+^solid biomass for industry$,costs,biomass fuel & techs,33
+^biogas$,costs,biomass fuel & techs,34
+^solid biomass transport$,costs,biomass fuel & techs,35
+^biomass exports$,costs,biomass fuel & techs,36
+^biogas exports$,costs,biomass fuel & techs,37
+^municipal solid waste$,costs,biomass fuel & techs,38
+^municipal solid waste transport$,costs,biomass fuel & techs,39
+^solid biomass powerplants$,costs,biomass fuel & techs,40
+^shipping oil$,costs,Fossil fuels & powerplants,41
+^naphtha for industry$,costs,Fossil fuels & powerplants,42
+^land transport oil$,costs,Fossil fuels & powerplants,43
+^kerosene for aviation$,costs,Fossil fuels & powerplants,44
+^agriculture machinery oil$,costs,Fossil fuels & powerplants,45
+^coal for industry$,costs,Fossil fuels & powerplants,46
+^gas for industry$,costs,Fossil fuels & powerplants,47
+^coal fuel$,costs,Fossil fuels & powerplants,48
+^gas fuel$,costs,Fossil fuels & powerplants,49
+^oil$,costs,Fossil fuels & powerplants,50
+^gas$,costs,Fossil fuels & powerplants,51
+^coal$,costs,Fossil fuels & powerplants,52
+^lignite$,costs,Fossil fuels & powerplants,53
+^CCGT$,costs,Fossil fuels & powerplants,54
+^OCGT$,costs,Fossil fuels & powerplants,55
+^coal powerplants$,costs,Fossil fuels & powerplants,56
+^oil powerplants$,costs,Fossil fuels & powerplants,57
+^oil primary$,costs,Fossil fuels & powerplants,58
+^oil refining$,costs,Fossil fuels & powerplants,59
+^hot water storage$,costs,TES & H2 storage,60
+^H2$,costs,TES & H2 storage,61
+^H2 storage$,costs,TES & H2 storage,62
+^H2 Store$,costs,TES & H2 storage,63
+^water pits$,costs,TES & H2 storage,64
+^water pits charger$,costs,TES & H2 storage,65
+^water pits discharger$,costs,TES & H2 storage,66
+^heat vent$,costs,TES & H2 storage,67
+load,costs,load shedding,68
+^SMR$,costs,synthetic fuels & techs,69
+^ammonia cracker$,costs,synthetic fuels & techs,70
+^Haber-Bosch$,costs,synthetic fuels & techs,71
+^BioSNG$,costs,synthetic fuels & techs,72
+^biomass to liquid$,costs,synthetic fuels & techs,73
+^methanol$,costs,synthetic fuels & techs,74
+^ammonia$,costs,synthetic fuels & techs,75
+^methanol exports$,costs,synthetic fuels & techs,76
+^ammonia exports$,costs,synthetic fuels & techs,77
+^methanolisation$,costs,synthetic fuels & techs,78
+^shipping methanol$,costs,synthetic fuels & techs,79
+^BioSNG CC$,costs,synthetic fuels & techs,80
+^HVC to air$,costs,synthetic fuels & techs,81
+^ammonia store$,costs,synthetic fuels & techs,82
+^biomass to liquid CC$,costs,synthetic fuels & techs,83
+^industry methanol$,costs,synthetic fuels & techs,84
+^non-sequestered HVC$,costs,synthetic fuels & techs,85
+^electrobiofuels$,costs,synthetic fuels & techs,86
+^uranium$,costs,nuclear,87
+^nuclear$,costs,nuclear,88
+^nuclear fuel$,costs,nuclear,89
+^H2 pipeline$,costs,H2 & gas pipelines,90
+^gas pipeline$,costs,H2 & gas pipelines,91
+^gas pipeline new$,costs,H2 & gas pipelines,92
+^H2 pipeline retrofitted$,costs,H2 & gas pipelines,93
+heat pump,capacities,power-to-heat,0
+resistive heater,capacities,power-to-heat,1
+^H2 Electrolysis$,capacities,power-to-gas,2
+^methanation$,capacities,power-to-gas,3
+^helmeth$,capacities,power-to-gas,4
+^H2 liquefaction$,capacities,power-to-gas,5
+^electricity distribution grid$,capacities,distribution network,6
+^CHP$,capacities,CHP,7
+^H2 Fuel Cell$,capacities,CHP,8
+^H2 turbine$,capacities,CHP,9
+solar,capacities,solar,10
+^Fischer-Tropsch$,capacities,power-to-liquid,11
+offshore wind,capacities,offshore wind,12
+^hot water storage$,capacities,thermal energy storage,13
+^water pits$,capacities,thermal energy storage,14
+^water pits charger$,capacities,thermal energy storage,15
+^water pits discharger$,capacities,thermal energy storage,16
+^nuclear$,capacities,nuclear,17
+^H2 pipeline$,capacities,H2 & gas pipelines,18
+^gas pipeline$,capacities,H2 & gas pipelines,19
+^gas pipeline new$,capacities,H2 & gas pipelines,20
+^H2 pipeline retrofitted$,capacities,H2 & gas pipelines,21
+^H2 Electrolysis$,dispatch,power-to-gas,0
+^methanation$,dispatch,power-to-gas,1
+^methanolisation$,dispatch,power-to-gas,2
+^helmeth$,dispatch,power-to-gas,3
+^H2 liquefaction$,dispatch,power-to-gas,4
+^Haber-Bosch$,dispatch,power-to-gas,5
+H2 pipeline,dispatch,H2 pipeline,6
+^H2 Store$,dispatch,hydrogen storage,7
+^H2 storage$,dispatch,hydrogen storage,8
+^CHP$,dispatch,CHP,9
+^H2 Fuel Cell$,dispatch,CHP,10
+^battery charger$,dispatch,battery storage,11
+^battery discharger$,dispatch,battery storage,12
+solar,dispatch,solar,13
+^Fischer-Tropsch$,dispatch,power-to-liquid,14
+offshore wind,dispatch,offshore wind,15
+^CO2 sequestration$,dispatch,CCS,16
+^co2$,dispatch,CCS,17
+^SMR CC$,dispatch,CCS,18
+^process emissions CC$,dispatch,CCS,19
+^process emissions$,dispatch,CCS,20
+^solid biomass for industry CC$,dispatch,CCS,21
+^gas for industry CC$,dispatch,CCS,22
+^biomass$,dispatch,biomass,23
+^biomass boiler$,dispatch,biomass,24
+^solid biomass$,dispatch,biomass,25
+^solid biomass for industry$,dispatch,biomass,26
+load,dispatch,load shedding,27
+^coal$,dispatch,coal,28
+^lignite$,dispatch,coal,29
+heat pump,map,power-to-heat,0
+resistive heater,map,power-to-heat,1
+^H2 Electrolysis$,map,power-to-gas,2
+^methanation$,map,power-to-gas,3
+^helmeth$,map,power-to-gas,4
+^H2 liquefaction$,map,power-to-gas,5
+^electricity distribution grid$,map,distribution network,6
+^CHP$,map,CHP,7
+^H2 Fuel Cell$,map,CHP,8
+^H2 turbine$,map,CHP,9
+^battery charger$,map,battery storage,10
+^battery discharger$,map,battery storage,11
+^battery$,map,battery storage,12
+^Li ion$,map,battery storage,13
+^EV charger$,map,battery storage,14
+^V2G$,map,battery storage,15
+^biomass boiler$,map,boilers,16
+^oil boiler$,map,boilers,17
+^gas boiler$,map,boilers,18
+solar,map,solar,19
+^Fischer-Tropsch$,map,power-to-liquid,20
+offshore wind,map,offshore wind,21
+^co2 sequestered$,map,CCUS,22
+^CO2 sequestration$,map,CCUS,23
+^co2$,map,CCUS,24
+^SMR CC$,map,CCUS,25
+^process emissions CC$,map,CCUS,26
+^process emissions$,map,CCUS,27
+^solid biomass for industry CC$,map,CCUS,28
+^gas for industry CC$,map,CCUS,29
+^CO2 pipeline$,map,CCUS,30
+^biomass$,map,biomass fuel & techs,31
+^solid biomass$,map,biomass fuel & techs,32
+^solid biomass for industry$,map,biomass fuel & techs,33
+^biogas$,map,biomass fuel & techs,34
+^solid biomass transport$,map,biomass fuel & techs,35
+^biomass exports$,map,biomass fuel & techs,36
+^biogas exports$,map,biomass fuel & techs,37
+^municipal solid waste$,map,biomass fuel & techs,38
+^municipal solid waste transport$,map,biomass fuel & techs,39
+^solid biomass powerplants$,map,biomass fuel & techs,40
+^shipping oil$,map,Fossil fuels & powerplants,41
+^naphtha for industry$,map,Fossil fuels & powerplants,42
+^land transport oil$,map,Fossil fuels & powerplants,43
+^kerosene for aviation$,map,Fossil fuels & powerplants,44
+^agriculture machinery oil$,map,Fossil fuels & powerplants,45
+^coal for industry$,map,Fossil fuels & powerplants,46
+^gas for industry$,map,Fossil fuels & powerplants,47
+^coal fuel$,map,Fossil fuels & powerplants,48
+^gas fuel$,map,Fossil fuels & powerplants,49
+^oil$,map,Fossil fuels & powerplants,50
+^gas$,map,Fossil fuels & powerplants,51
+^coal$,map,Fossil fuels & powerplants,52
+^lignite$,map,Fossil fuels & powerplants,53
+^CCGT$,map,Fossil fuels & powerplants,54
+^OCGT$,map,Fossil fuels & powerplants,55
+^coal powerplants$,map,Fossil fuels & powerplants,56
+^oil powerplants$,map,Fossil fuels & powerplants,57
+^oil primary$,map,Fossil fuels & powerplants,58
+^oil refining$,map,Fossil fuels & powerplants,59
+^hot water storage$,map,TES & H2 storage,60
+^H2$,map,TES & H2 storage,61
+^H2 storage$,map,TES & H2 storage,62
+^H2 Store$,map,TES & H2 storage,63
+^water pits$,map,TES & H2 storage,64
+^water pits charger$,map,TES & H2 storage,65
+^water pits discharger$,map,TES & H2 storage,66
+^heat vent$,map,TES & H2 storage,67
+load,map,load shedding,68
+^SMR$,map,synthetic fuels & techs,69
+^ammonia cracker$,map,synthetic fuels & techs,70
+^Haber-Bosch$,map,synthetic fuels & techs,71
+^BioSNG$,map,synthetic fuels & techs,72
+^biomass to liquid$,map,synthetic fuels & techs,73
+^methanol$,map,synthetic fuels & techs,74
+^ammonia$,map,synthetic fuels & techs,75
+^methanol exports$,map,synthetic fuels & techs,76
+^ammonia exports$,map,synthetic fuels & techs,77
+^methanolisation$,map,synthetic fuels & techs,78
+^shipping methanol$,map,synthetic fuels & techs,79
+^BioSNG CC$,map,synthetic fuels & techs,80
+^HVC to air$,map,synthetic fuels & techs,81
+^ammonia store$,map,synthetic fuels & techs,82
+^biomass to liquid CC$,map,synthetic fuels & techs,83
+^industry methanol$,map,synthetic fuels & techs,84
+^non-sequestered HVC$,map,synthetic fuels & techs,85
+^electrobiofuels$,map,synthetic fuels & techs,86
+^uranium$,map,nuclear,87
+^nuclear$,map,nuclear,88
+^nuclear fuel$,map,nuclear,89
+^H2 pipeline$,map,H2 & gas pipelines,90
+^gas pipeline$,map,H2 & gas pipelines,91
+^gas pipeline new$,map,H2 & gas pipelines,92
+^H2 pipeline retrofitted$,map,H2 & gas pipelines,93
+^synthetic fuels & techs$,clustered,Uses,0
+^power-to-liquid$,clustered,Uses,1
+^power-to-heat$,clustered,Uses,2
+^power-to-gas$,clustered,Uses,3
+^CCU$,clustered,Uses,4
+^CCUS$,clustered,Uses,5
+^DAC$,clustered,Uses,6
+^boilers$,clustered,Uses,7
+^load shedding$,clustered,Uses,8
+^transmission lines$,clustered,Networks,9
+^distribution network$,clustered,Networks,10
+^battery storage$,clustered,Networks,11
+^TES & H2 storage$,clustered,Networks,12
+^H2 & gas pipelines$,clustered,Networks,13
+^solar$,clustered,Power Plants,14
+^solar PV$,clustered,Power Plants,15
+^onshore wind$,clustered,Power Plants,16
+^offshore wind$,clustered,Power Plants,17
+^nuclear$,clustered,Power Plants,18
+^hydroelectricity$,clustered,Power Plants,19
+^biomass fuel & techs$,clustered,Power Plants,20
+^CHP$,clustered,Power Plants,21
+^Electricity Imports/Exports$,clustered,Imports,22
+^Hydrogen Imports/Exports$,clustered,Imports,23
+^Fossil fuels & powerplants$,clustered,Imports,24

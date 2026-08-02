@@ -64,6 +64,18 @@ class ScenarioConfig:
 
 
 @dataclass
+class DispatchWindowsConfig:
+    """Calendar windows for dispatch charts (``[start, stop]`` ISO dates).
+
+    ``None`` means derive a representative week from the network snapshots
+    (February for winter, July for summer) instead of hardcoding a weather year.
+    """
+
+    winter: list[str] | None = None
+    summer: list[str] | None = None
+
+
+@dataclass
 class ModelConfig:
     """How to find and read the model output."""
 
@@ -78,6 +90,7 @@ class ModelConfig:
     base_year_source: str | None = None
     #: Absolute threshold below which a flow is dropped, in TWh (or Mt for CO2).
     flow_threshold: float = 0.1
+    dispatch_windows: DispatchWindowsConfig = field(default_factory=DispatchWindowsConfig)
 
     def network_path(self, results_dir: Path | str, horizon: int) -> Path:
         rel = self.network_pattern.format(
@@ -117,6 +130,18 @@ class LandingConfig:
 
 
 @dataclass
+class FeaturesConfig:
+    """Optional behaviours that differ across models."""
+
+    #: Attribute AC/DC transmission separately. ``None`` = auto (on when >1 node).
+    transmission_costs: bool | None = None
+    #: How capacity charts filter ``nodal_capacities.csv``.
+    #: ``bus_carrier`` (default) keeps components attached to electricity /
+    #: heat / H2 service buses; ``off`` plots every non-Store row.
+    capacity_filter: str | None = "bus_carrier"
+
+
+@dataclass
 class OutputConfig:
     dir: str = "html"
     #: Page ids to build, in navigation order.  See ``data/pages.yaml``.
@@ -141,6 +166,7 @@ class Config:
     scenarios: list[ScenarioConfig]
     plots: dict[str, bool]
     texts: dict[str, Any]
+    features: FeaturesConfig = field(default_factory=FeaturesConfig)
     #: Directory the relative paths in this config resolve against.
     root: Path = field(default_factory=Path.cwd)
     raw: dict = field(default_factory=dict)
@@ -240,6 +266,13 @@ def load_config(path: str | Path, overrides: dict | None = None) -> Config:
             "(each needs a name and a results_dir)"
         )
 
+    model_raw = dict(merged.get("model", {}))
+    dispatch_windows = _as_dataclass(
+        DispatchWindowsConfig, dict(model_raw.pop("dispatch_windows", {}))
+    )
+    model = _as_dataclass(ModelConfig, model_raw)
+    model.dispatch_windows = dispatch_windows
+
     nodes_raw = dict(merged.get("nodes", {}))
     aggregate = _as_dataclass(AggregateConfig, dict(nodes_raw.pop("aggregate", {})))
     nodes = _as_dataclass(NodesConfig, nodes_raw)
@@ -260,13 +293,14 @@ def load_config(path: str | Path, overrides: dict | None = None) -> Config:
 
     cfg = Config(
         project=_as_dataclass(ProjectConfig, dict(merged.get("project", {}))),
-        model=_as_dataclass(ModelConfig, dict(merged.get("model", {}))),
+        model=model,
         nodes=nodes,
         output=_as_dataclass(OutputConfig, dict(merged.get("output", {}))),
         landing=landing,
         scenarios=scenarios,
         plots=dict(merged.get("plots", {})),
         texts=dict(merged.get("texts", {})),
+        features=_as_dataclass(FeaturesConfig, dict(merged.get("features", {}))),
         root=root,
         raw=merged,
     )

@@ -19,6 +19,9 @@ model:
   base_year: null           # e.g. 2020 to merge an exogenous historical column
   base_year_source: null    # path template for that column, relative to root
   flow_threshold: 0.1       # TWh (Mt for CO2); flows below this are dropped
+  dispatch_windows:
+    winter: null            # null = derive a week near February from snapshots
+    summer: null            # null = derive a week near July from snapshots
 
 nodes:
   detect: true          # read n.buses.location from the first solved network
@@ -59,5 +62,15 @@ plots: {}
 #       default: "<p>...</p>"
 #       BEWAL:   "<p>Wallonia-specific ...</p>"
 texts: {}
+
+# Optional feature flags.  null = choose a sensible default from the model.
+features:
+  # Attribute AC/DC transmission costs/capacities separately from nodal CSVs.
+  # null = on when the model has more than one real node.
+  transmission_costs: null
+  # Filter nodal_capacities for capacity charts using network bus topology
+  # (default).  Set to "off" to plot every non-Store row (usually unusable —
+  # fuel potentials and vents dominate the GW axis).
+  capacity_filter: bus_carrier
 
 scenarios: []

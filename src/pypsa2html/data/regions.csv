@@ -1,17 +1,17 @@
-Code,Label,Color,ISO_Code,EU_member
+Code,Label,Color,ISO_Code,EU_member,gdp_bneur
 AT,Austria,#C65911,AUT,1.0
-BE,Belgium,#D9DA1A,BEL,1.0
+BE,Belgium,#D9DA1A,BEL,1.0,568
 BG,Bulgaria,#E07B6F,BGR,1.0
 CH,Switzerland,#2643EE,CHE,0.0
 CY,Cyprus,#548441,CYP,1.0
 CZ,Czech Republic,#1A171A,CZE,1.0
-DE,Germany,#374C98,DEU,1.0
+DE,Germany,#374C98,DEU,1.0,3985
 DK,Denmark,#0054A0,DNK,1.0
 EE,Estonia,#0DB2AE,EST,1.0
 EL,Greece,#41291B,GRC,1.0
 ES,Spain,#7C4D26,ESP,1.0
 FI,Finland,#F8D91B,FIN,1.0
-FR,France,#B0B332,FRA,1.0
+FR,France,#B0B332,FRA,1.0,2688
 HR,Croatia,#FCF600,HRV,1.0
 HU,Hungary,#006400,HUN,1.0
 IE,Ireland,#E6332E,IRL,1.0
@@ -20,7 +20,7 @@ LT,Lithuania,#FF0066,LTU,1.0
 LU,Luxembourg,#86C7AF,LUX,1.0
 LV,Latvia,#2BFAFA,LVA,1.0
 MT,Malta,#8FCBEB,MLT,1.0
-NL,Netherlands,#BE0926,NLD,1.0
+NL,Netherlands,#BE0926,NLD,1.0,1016
 NO,Norway,#1A171A,NOR,0.0
 PL,Poland,#219CD3,POL,1.0
 PT,Portugal,#BE6AA3,PRT,1.0
@@ -28,5 +28,5 @@ RO,Romania,#E7511E,ROU,1.0
 SE,Sweden,#786854,SWE,1.0
 SI,Slovenia,#FFE011,SVN,1.0
 SK,Slovakia,#CBBB9D,SVK,1.0
-GB,United Kingdom,#32CD32,GBR,0.0
+GB,United Kingdom,#32CD32,GBR,0.0,2977
 EU,Total,,,

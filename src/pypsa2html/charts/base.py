@@ -40,6 +40,8 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 
+from pypsa2html.datafiles import load_tech_colors, load_tech_groups
+
 logger = logging.getLogger(__name__)
 
 #: Height of every chart, in pixels.  Width is left to the container.
@@ -80,6 +82,146 @@ class Html:
 # ---------------------------------------------------------------------------
 # Labels and colours
 # ---------------------------------------------------------------------------
+
+# Prefixes stripped by the legacy ``rename_techs`` (PyPSA-Eur ``plot_summary``).
+_CARRIER_PREFIXES = (
+    "residential ",
+    "services ",
+    "urban ",
+    "rural ",
+    "central ",
+    "decentral ",
+)
+
+# Substrings that collapse the whole carrier label (``rename_if_contains``).
+_CARRIER_CONTAINS = (
+    "CHP",
+    "gas boiler",
+    "biogas",
+    "solar thermal",
+    "air heat pump",
+    "ground heat pump",
+    "resistive heater",
+    "Fischer-Tropsch",
+)
+
+_CARRIER_CONTAINS_RENAME = {
+    "water tanks": "hot water storage",
+    "retrofitting": "building retrofitting",
+    "H2 for industry": "H2 for industry",
+    "land transport fuel cell": "land transport fuel cell",
+    "land transport oil": "land transport oil",
+    "oil shipping": "shipping oil",
+}
+
+_CARRIER_EXACT_RENAME = {
+    "solar": "solar PV",
+    "Sabatier": "methanation",
+    "offwind": "offshore wind",
+    "offwind-ac": "offshore wind (AC)",
+    "offwind-dc": "offshore wind (DC)",
+    "onwind": "onshore wind",
+    "ror": "hydroelectricity",
+    "hydro": "hydroelectricity",
+    "PHS": "hydroelectricity",
+    "NH3": "ammonia",
+    "co2 Store": "DAC",
+    "co2 stored": "CO2 sequestration",
+    "AC": "transmission lines",
+    "DC": "transmission lines",
+    "B2B": "transmission lines",
+}
+
+
+def normalize_carrier(label: str) -> str:
+    """Normalise a PyPSA carrier label (legacy ``rename_techs``)."""
+    name = str(label)
+    for prefix in _CARRIER_PREFIXES:
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+    for fragment in _CARRIER_CONTAINS:
+        if fragment in name:
+            return fragment
+    for old, new in _CARRIER_CONTAINS_RENAME.items():
+        if old in name:
+            return new
+    return _CARRIER_EXACT_RENAME.get(name, name)
+
+
+#: Reserved ``tech_groups.csv`` group: drop the carrier from that view.
+#: Matched against the *raw* carrier in :func:`omit_carriers` (before
+#: :func:`normalize_carrier`), so ``^biogas$`` does not also remove
+#: ``biogas to gas``.
+OMIT_GROUP = "__omit__"
+
+
+def _pattern_matches(pattern: str, name: str) -> bool:
+    if pattern.startswith("^") and pattern.endswith("$"):
+        return name == pattern[1:-1]
+    return pattern in name
+
+
+def omit_carriers(
+    carriers: pd.Series,
+    view: str,
+    *,
+    tech_groups: pd.DataFrame | None = None,
+) -> pd.Series:
+    """Boolean mask: ``True`` where the *raw* carrier is omitted for ``view``."""
+    if tech_groups is None:
+        tech_groups = load_tech_groups()
+    rules = tech_groups.loc[
+        (tech_groups["view"] == view) & (tech_groups["group"] == OMIT_GROUP)
+    ]
+    if rules.empty:
+        return pd.Series(False, index=carriers.index)
+
+    patterns = [str(p) for p in rules["pattern"]]
+
+    def omitted(raw: object) -> bool:
+        name = str(raw)
+        return any(_pattern_matches(p, name) for p in patterns)
+
+    return carriers.map(omitted)
+
+
+def apply_tech_map(
+    series: pd.Series,
+    view: str,
+    *,
+    tech_groups: pd.DataFrame | None = None,
+) -> pd.Series:
+    """Map carrier names to display groups for ``view``.
+
+    Unknown names pass through unchanged (after :func:`normalize_carrier`).
+    ``tech_groups`` is read from ``data/tech_groups.csv`` when omitted; the
+    table itself is never mutated.  Rows with group :data:`OMIT_GROUP` are
+    ignored here — use :func:`omit_carriers` to filter them on raw names.
+    """
+    if tech_groups is None:
+        tech_groups = load_tech_groups()
+    rules = tech_groups.loc[
+        (tech_groups["view"] == view) & (tech_groups["group"] != OMIT_GROUP)
+    ].copy()
+    rules["_plen"] = rules["pattern"].astype(str).str.len()
+    rules = rules.sort_values(["order", "_plen"], ascending=[True, False])
+
+    def map_one(raw: object) -> str:
+        name = normalize_carrier(raw)
+        for row in rules.itertuples(index=False):
+            if _pattern_matches(str(row.pattern), name):
+                return str(row.group)
+        return name
+
+    indexed = series.copy()
+    return indexed.map(map_one)
+
+
+def tech_color_map() -> dict[str, str]:
+    """Return a copy of ``tech_colors.csv`` as a name -> #rrggbb dict."""
+    table = load_tech_colors()
+    return dict(zip(table["name"], table["color"], strict=True))
+
 
 def strip_markup(text: str) -> str:
     """Strip the ``<sub>`` markup the legacy unit strings carried."""
@@ -271,6 +413,89 @@ def line_chart(
         )
     _add_targets(fig, targets)
     _layout(fig, title=title, unit=unit, years=data.index)
+    return fig
+
+
+def stacked_bar(
+    df: pd.DataFrame,
+    colors: dict[str, str] | None,
+    unit: str,
+    title: str = "",
+    *,
+    signed: bool = True,
+    scale: float = 1.0,
+) -> go.Figure | None:
+    """Stacked (or relative) bar chart of a tech × year table.
+
+    ``df`` has technologies as the index and year labels as columns -- the
+    shape returned by :func:`pypsa2html.extract.tables.cost_table`.  Replaces
+    the four near-identical legacy bar builders (``create_bar_chart``,
+    ``create_clustered_costs``, ``create_investment_costs``,
+    ``create_operational_costs``).
+
+    When ``signed`` is true, positive and negative values are split so
+    ``barmode='relative'`` stacks credits below the axis.  ``scale`` multiplies
+    every value (e.g. ``1e-3`` to show MW as GW).
+    """
+    if df is None or df.empty or not len(df.columns):
+        return None
+    data = df.astype(float) * scale
+    # Drop all-zero technologies so the legend stays readable.
+    data = data.loc[~(data == 0).all(axis=1)]
+    if data.empty:
+        return None
+    years = [str(c) for c in data.columns]
+    transposed = data.T
+    transposed.index = years
+    palette = dict(colors or {})
+    fig = go.Figure()
+    for tech in transposed.columns:
+        series = transposed[tech]
+        color = palette.get(tech, "lightgrey")
+        if signed:
+            fig.add_trace(
+                go.Bar(
+                    x=years,
+                    y=series.where(series > 0, 0.0),
+                    name=tech,
+                    marker_color=color,
+                    legendgroup=tech,
+                    hovertemplate="%{y:.3g}",
+                )
+            )
+            if (series < 0).any():
+                fig.add_trace(
+                    go.Bar(
+                        x=years,
+                        y=series.where(series < 0, 0.0),
+                        name=tech,
+                        marker_color=color,
+                        legendgroup=tech,
+                        showlegend=False,
+                        hovertemplate="%{y:.3g}",
+                    )
+                )
+        else:
+            fig.add_trace(
+                go.Bar(
+                    x=years,
+                    y=series,
+                    name=tech,
+                    marker_color=color,
+                    hovertemplate="%{y:.3g}",
+                )
+            )
+    fig.update_layout(
+        title=title or None,
+        barmode="relative" if signed else "stack",
+        height=CHART_HEIGHT,
+        hovermode="x unified",
+        yaxis_title=strip_markup(unit),
+        font={"size": FONT_SIZE},
+        legend_title_text="",
+        margin={"l": 60, "r": 30, "t": 60 if title else 30, "b": 50},
+        xaxis={"tickmode": "array", "tickvals": years, "title": ""},
+    )
     return fig
 
 

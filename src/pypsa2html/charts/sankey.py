@@ -125,24 +125,42 @@ def sankey(
         links = links[known]
 
     # Per-node totals, taking the larger of the in- and out-flow so a pure sink
-    # is treated like a pure source.
-    outgoing = links.groupby("Source")[years].sum()
-    incoming = links.groupby("Target")[years].sum()
+    # is treated like a pure source.  Use magnitude so signed carbon links
+    # (capture / removal) still mark a node as present.
+    magnitude = links.copy()
+    for year in years:
+        magnitude[year] = links[year].abs()
+    outgoing = magnitude.groupby("Source")[years].sum()
+    incoming = magnitude.groupby("Target")[years].sum()
     presence = pd.concat([outgoing, incoming]).groupby(level=0).max()
+    presence = presence.loc[presence.index.isin(nodes.index)]
     always = presence.index[(presence > 0).all(axis=1)].drop_duplicates()
     # Sorting by x keeps plotly's "snap" arrangement stable across horizons.
-    ordered = nodes.loc[always].sort_values(by="PositionX")
+    ordered = nodes.reindex(always).dropna(how="all")
+    if "PositionX" in ordered.columns:
+        ordered = ordered.sort_values(by="PositionX")
 
     figure = go.Figure()
     steps = []
     for i, year in enumerate(years):
         extra = presence.index[presence[year] > 0].drop_duplicates()
         extra = [code for code in extra if code not in set(ordered.index)]
-        year_nodes = pd.concat([ordered, nodes.loc[extra]])
+        year_nodes = pd.concat([ordered, nodes.reindex(extra).dropna(how="all")])
+        year_nodes = year_nodes[~year_nodes.index.duplicated(keep="first")]
+        if year_nodes.empty:
+            continue
         row_index = pd.Series(range(len(year_nodes)), index=year_nodes.index)
         opacity = year_nodes["Color"].map(_rgba)
 
-        year_links = links.loc[links[year] > 0]
+        # Magnitude for drawing; signed carbon values keep their sign in the
+        # label via the raw frame, but plotly needs positive link weights.
+        year_links = links.loc[links[year].abs() > 0].copy()
+        year_links = year_links[
+            year_links["Source"].isin(row_index.index)
+            & year_links["Target"].isin(row_index.index)
+        ]
+        if year_links.empty:
+            continue
         node_spec = {
             "label": year_nodes["Label"].tolist(),
             "color": year_nodes["Color"].tolist(),
@@ -160,11 +178,11 @@ def sankey(
                 arrangement="snap",
                 node=node_spec,
                 link={
-                    "source": row_index.loc[year_links["Source"]].tolist(),
-                    "target": row_index.loc[year_links["Target"]].tolist(),
-                    "color": opacity.loc[year_links["Source"]].tolist(),
+                    "source": row_index.reindex(year_links["Source"]).tolist(),
+                    "target": row_index.reindex(year_links["Target"]).tolist(),
+                    "color": opacity.reindex(year_links["Source"]).tolist(),
                     "label": year_links["Label"].fillna("").tolist(),
-                    "value": year_links[year].tolist(),
+                    "value": year_links[year].abs().tolist(),
                 },
             )
         )
@@ -178,10 +196,21 @@ def sankey(
             }
         )
 
-    active = len(years) - 1
+    if not figure.data:
+        logger.warning("Sankey: no drawable links for any horizon")
+        return None
+
+    active = min(len(figure.data) - 1, len(steps) - 1)
+    # Rebuild visibility masks to match the traces actually added.
+    n_traces = len(figure.data)
+    for i, step in enumerate(steps):
+        visible = [False] * n_traces
+        if i < n_traces:
+            visible[i] = True
+        step["args"][0]["visible"] = visible
     figure.data[active].visible = True
     figure.update_layout(
-        title_text=f"{title} {years[active]}".strip() or None,
+        title_text=f"{title} {years[min(active, len(years)-1)]}".strip() or None,
         hovermode="x",
         height=CHART_HEIGHT,
         margin={"l": 20, "r": 20, "t": 90, "b": 20},

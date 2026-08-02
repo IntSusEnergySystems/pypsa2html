@@ -154,6 +154,24 @@ texts:                                 # optional narrative HTML above a section
 Two worked examples ship in [`config/`](config/): `negawatt.yaml` and
 `pypsa-wal.yaml`.
 
+### Point of attention — capacity charts
+
+PyPSA-Eur's `nodal_capacities.csv` lists *every* controllable component, including
+fuel-potential Generators (biogas on a biogas bus), unconstrained industry
+feedstock Links, heat vents and CO₂ / material Stores.  Their `p_nom_opt` is a
+modelling bound, not installed conversion capacity — plotting them raw produces
+axes in the 10⁵–10⁸ GW range.
+
+By default (`features.capacity_filter: bus_carrier`) capacity charts keep only
+`(component, carrier)` pairs that attach to an electricity, heat or H₂
+*service* bus (power) or Store carriers on battery / H₂ / gas / water
+buses (storage).  Using the component type matters: the same carrier name can
+be a fuel-potential Generator and a power-plant Link (e.g. `lignite`).
+Classification uses the solved network topology, so new technologies are
+handled without a per-carrier denylist.  Set `features.capacity_filter: off`
+only if you intentionally want the unfiltered CSV.  An optional `__omit__`
+group in `tech_groups.csv` remains available as an extra name denylist.
+
 ### Output
 
 One directory containing `index.html` (redirecting to the landing page) plus

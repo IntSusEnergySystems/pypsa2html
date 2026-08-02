@@ -6,7 +6,18 @@ per entry in ``ctx.year_columns``.  Extractors never write files, never touch
 ``snakemake`` and never mutate the networks they read.
 """
 
+from .balance import derive_dispatch_window, dispatch_window, energy_balance
 from .emissions import carbon_flows
 from .flows import energy_flows
+from .tables import capacity_table, cost_table, demand_table
 
-__all__ = ["energy_flows", "carbon_flows"]
+__all__ = [
+    "energy_flows",
+    "carbon_flows",
+    "cost_table",
+    "capacity_table",
+    "demand_table",
+    "energy_balance",
+    "dispatch_window",
+    "derive_dispatch_window",
+]
