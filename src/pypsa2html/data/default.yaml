@@ -25,6 +25,9 @@ model:
   dispatch_windows:
     winter: null            # null = derive a week near February from snapshots
     summer: null            # null = derive a week near July from snapshots
+  # Display density for weekly dispatch charts (serialisation cost, not accuracy).
+  dispatch_step_hours: 2    # 1 = full hourly; 2 ≈ half the plotly JSON
+  dispatch_value_decimals: 3
 
 nodes:
   detect: true          # read n.buses.location from the first solved network

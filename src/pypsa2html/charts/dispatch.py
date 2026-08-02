@@ -42,6 +42,27 @@ def heat_summer(ctx, node: str, section) -> go.Figure | None:
     return _dispatch_chart(ctx, node, section, carrier="heat", season="summer")
 
 
+def slim_dispatch_frame(
+    data: pd.DataFrame,
+    *,
+    step_hours: int = 2,
+    decimals: int = 3,
+) -> pd.DataFrame:
+    """Downsample and round a dispatch frame for lighter plotly serialisation.
+
+    Keeps every ``step_hours``-th row (``1`` = no downsampling) and rounds
+    values so the embedded JSON is not full float64 noise.  Chart *values* at
+    retained timestamps stay faithful; only on-page density changes.
+    """
+    out = data
+    step = max(int(step_hours), 1)
+    if step > 1 and len(out) > 1:
+        out = out.iloc[::step]
+    if decimals is not None and decimals >= 0:
+        out = out.round(int(decimals))
+    return out
+
+
 def _dispatch_chart(ctx, node: str, section, *, carrier: str, season: str) -> go.Figure | None:
     window = dispatch_window(ctx, season)
     if window is None:
@@ -49,10 +70,21 @@ def _dispatch_chart(ctx, node: str, section, *, carrier: str, season: str) -> go
         return None
     start, stop = window
 
+    model = getattr(getattr(ctx, "config", None), "model", None)
+    step_hours = int(getattr(model, "dispatch_step_hours", 2) or 1)
+    decimals = int(getattr(model, "dispatch_value_decimals", 3) or 0)
+
     figures: list[tuple[str, go.Figure]] = []
     for horizon in ctx.horizons:
         balance = energy_balance(ctx, node, carrier, horizon, start=start, stop=stop)
-        fig = _stacked_area(balance, unit=section.unit, title=section.title, horizon=horizon)
+        fig = _stacked_area(
+            balance,
+            unit=section.unit,
+            title=section.title,
+            horizon=horizon,
+            step_hours=step_hours,
+            decimals=decimals,
+        )
         if fig is not None:
             figures.append((str(horizon), fig))
 
@@ -70,6 +102,8 @@ def _stacked_area(
     unit: str,
     title: str,
     horizon: int,
+    step_hours: int = 2,
+    decimals: int = 3,
 ) -> go.Figure | None:
     if balance is None or balance.empty:
         return None
@@ -79,6 +113,7 @@ def _stacked_area(
     data = data.loc[:, (data != 0).any()]
     if data.empty or not len(data.columns):
         return None
+    data = slim_dispatch_frame(data, step_hours=step_hours, decimals=decimals)
 
     positive = data.clip(lower=0)
     negative = data.clip(upper=0)

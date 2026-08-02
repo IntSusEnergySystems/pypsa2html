@@ -215,8 +215,10 @@ def build_site(
     manifest: Manifest | None = None,
 ) -> BuildReport:
     """Build the whole site: every scenario, plus ``index.html``."""
+    from .charts.maps import clear_map_png_cache
     from .networks import clear_path_cache
 
+    clear_map_png_cache()
     report = BuildReport()
     manifest = manifest or load_manifest(
         enable=config.plots, include_pages=config.output.pages

@@ -126,7 +126,7 @@ hardcoded JavaScript per node or per scenario.
 
 1. No `snakemake` anywhere below `cli.py` / the Snakemake shim.
 2. No year literals; no node-code literals; no `'EU'` magic string.
-3. No `groupby(..., axis=1)` — use `.T.groupby(...).sum().T` or `.groupby(..., axis='columns')`
+3. No `groupby(..., axis=1)` — use `.T.groupby(...).sum().T` (pandas 3-safe).
    replacements valid in pandas ≥2.1 (`df.T.groupby(level).sum().T`).
 4. No mutation of arguments, of `ctx.taxonomy`, or of the plotting palette.
 5. Missing input → warning + `None`, never `NameError`.

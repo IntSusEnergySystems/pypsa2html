@@ -95,6 +95,11 @@ class ModelConfig:
     #: positive int only when RAM is tight.
     network_cache_size: int | None = None
     dispatch_windows: DispatchWindowsConfig = field(default_factory=DispatchWindowsConfig)
+    #: Keep every N-th snapshot when serialising dispatch charts (``1`` = hourly).
+    #: Display-only: chart *shape* stays faithful, HTML payload shrinks ~N×.
+    dispatch_step_hours: int = 2
+    #: Decimal places for dispatch y-values before plotly JSON serialisation.
+    dispatch_value_decimals: int = 3
 
     def network_path(self, results_dir: Path | str, horizon: int) -> Path:
         rel = self.network_pattern.format(

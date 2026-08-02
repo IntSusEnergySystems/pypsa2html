@@ -59,6 +59,8 @@ def test_gdp_bneur_present_for_be():
     tax = load_taxonomy()
     assert "gdp_bneur" in tax.regions.columns
     assert tax.regions.at["BE", "gdp_bneur"] == 568
+    assert tax.regions.at["BEWAL", "gdp_bneur"] == 136
+    assert tax.regions.at["LU", "gdp_bneur"] == 82
 
 
 def test_tech_color_map_is_a_copy():

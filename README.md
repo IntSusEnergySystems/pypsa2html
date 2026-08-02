@@ -65,7 +65,7 @@ pip install -e . --no-deps
 ```
 
 **Minimum requirements** (see `pyproject.toml`): Python ≥3.10, `pypsa` ≥0.31,
-`pandas` ≥2.1 `<3.0`, `numpy`, `plotly` ≥5.18, `jinja2`, `pyyaml`, `openpyxl`,
+`pandas` ≥2.1, `numpy`, `plotly` ≥5.18, `jinja2`, `pyyaml`, `openpyxl`,
 `netCDF4`. The map pages additionally need `matplotlib`, `geopandas` and
 `cartopy` (`pip install -e ".[maps]"`); the weekly-dispatch widgets need
 `panel` (`".[dispatch]"`). Both are optional — without them those pages are
@@ -315,6 +315,8 @@ Progress tracker (✅ done / 🔧 residual polish / ☐ open):
 | 6 | Cache the geojson and cost tables | ✅ |
 | 7 | Replace quadratic accumulation | ✅ |
 | 8 | Stop embedding maps as base64 | ✅ |
+| 9 | Downsample / slim plotly dispatch serialisation | ✅ |
+| 10 | Cache map PNGs across scenarios when identical | ✅ |
 
 1. **Extract once per horizon, share across nodes.** ✅ Snapshot-weighted
    `weights @ links_t.pN` (and generator / load totals) run once per horizon via
@@ -344,8 +346,31 @@ Progress tracker (✅ done / 🔧 residual polish / ☐ open):
    appends in the hot paths.
 8. **Stop embedding maps as base64.** ✅ PNGs are written next to the HTML
    (`map_{section}_{horizon}.png`) and referenced with `<img src=…>`.
+9. **Downsample / slim plotly dispatch serialisation.** ✅ Weekly dispatch
+   frames keep every `model.dispatch_step_hours` snapshot (default 2) and
+   round y-values to `model.dispatch_value_decimals` (default 3) before
+   plotly JSON embedding. Chart values at retained timestamps stay faithful;
+   set `dispatch_step_hours: 1` for full hourly density.
+10. **Cache map PNGs across scenarios when identical.** ✅ `_build_maps_page`
+    fingerprints the *plotted* inputs (cost/GDP ratio, pipe capacities above
+    the drawing threshold, H₂ storage) and hardlinks or copies a previously
+    written `map_{section}_{horizon}.png` when the fingerprint matches.
+    Cleared at the start of each `build_site` run. On pypsa-wal this reuses
+    all cost-map PNGs across the three scenarios (and some gas maps).
 
-**Validation (2026-08-02):** rebuilt all three pypsa-wal scenarios (221 pages,
+**Validation (2026-08-02, items 9–17):** rebuilt all three pypsa-wal scenarios
+(221 pages, **131 s**). Against the previous HTML tree (`/tmp/pypsa2html-wal-after`):
+
+- **193 / 193** non-dispatch HTML bodies identical after stripping generation
+  timestamps, colour strings, and plotly uids;
+- **27 dispatch pages** intentionally smaller (−34% HTML bytes) from
+  `dispatch_step_hours: 2` (item 9);
+- **15 / 36 map PNGs** byte-identical (all gas maps); **12 cost PNGs** differ
+  because `gdp_bneur` now includes BEWAL/BEVLG/BEBRU/LU (item 17);
+  **9 hydrogen PNGs** differ slightly from `group_pipes` aggregation (item 13);
+- map PNG fingerprint cache reused across scenarios (items 10).
+
+**Validation (2026-08-02, items 1–8):** rebuilt all three pypsa-wal scenarios (221 pages,
 832 s before the network-cache fix below). Against the previous HTML tree: all
 36 map PNGs byte-identical; all 220 HTML bodies identical after stripping
 generation timestamps, colour strings, and nav chrome. The only surface diffs
@@ -362,29 +387,34 @@ performed ~400 disk loads (~0.8 s each). Fixes:
 - shared `BuildContext` pool across scenarios so overview does not re-extract
   every node three times.
 
-pypsa-wal full site: **~832 s → ~144 s** (12 network loads). Remaining time is
-mostly plotly serialisation (dispatch pages) and map rendering — further wins
-would be downsampling dispatch traces or caching rendered map PNGs across
-scenarios when networks are identical.
+pypsa-wal full site: **~832 s → ~131 s** (12 network loads). Items 9–10:
+dispatch HTML is thinner (`dispatch_step_hours: 2`) and identical map PNGs are
+reused across scenarios via content fingerprints.
 
 ### Structural
 
-9. **Collapse the four tech taxonomies.** `rename_techs_tyndp`, `_tynd`,
-   `_tyndpp` and `rename_techs_ty` overlap heavily and disagree in places. They
-   are data, not code — one CSV with named views.
-10. **Merge the four near-identical bar-chart builders** (85–94% identical) into
-    one parameterised `stacked_bar`.
-11. **Import upstream map code instead of vendoring it.** `group_pipes` is
-    byte-identical to PyPSA-Eur's `plot_hydrogen_network.py`; the three map
-    functions are 50–70% copies of upstream.
-12. **Give maps a per-node view.** Currently one shared page (D8); highlighting
-    the selected region would make a per-node page meaningful again.
-13. **A synthetic tiny network fixture**, so the extraction layer can be tested
-    without a 45 MB `.nc` (D11).
-14. **`pandas` 3.0 readiness.** `groupby(axis=1)` is removed there; ported code
-    avoids it, but the pin is `<3.0` until the whole port is done.
-15. **Per-node economic metadata** (GDP denominators for the cost map) is still
-    a literal dict; it belongs in `regions.csv`.
+11. **Collapse the four tech taxonomies.** ✅ `tech_groups.csv` +
+    `apply_tech_map(series, view)` replace `rename_techs_tyndp` / `_tynd` /
+    `_tyndpp` / `rename_techs_ty`. Views: `costs`, `capacities`, `dispatch`,
+    `map`, `clustered`.
+12. **Merge the four near-identical bar-chart builders** ✅ into
+    `charts.base.stacked_bar` (used by costs, capacities and scenario overview).
+13. **Import upstream map code instead of vendoring it.** ✅
+    `charts/maps_pipes.group_pipes` imports PyPSA-Eur's
+    `scripts.plot_hydrogen_network.group_pipes` when on `sys.path`, else uses a
+    vendored copy. Hydrogen maps draw grouped parallel pipes.
+14. **Give maps a per-node view.** ✅ Set `output.shared_maps: false` to emit
+    one maps page per node with the selected region outlined. Default remains
+    shared (D8) for compact multi-scenario sites.
+15. **A synthetic tiny network fixture.** ✅ `tests/data/mini.nc` (~81 kB)
+    built by `tests/data/make_mini_network.py` — two nodes, AC/gas/H2, 24
+    snapshots. Covered by `tests/test_mini_network.py` (no full model needed).
+16. **`pandas` 3.0 readiness.** ✅ No `groupby(axis=1)` remains; helpers use
+    `.T.groupby(...).sum().T`. The dependency pin is `pandas>=2.1` (upper
+    bound lifted).
+17. **Per-node economic metadata** ✅ `gdp_bneur` column in `regions.csv`,
+    read by the cost map (nodes without an entry are skipped, not divided by
+    zero). Includes Belgian sub-regions and LU for pypsa-wal.
 
 ---
 

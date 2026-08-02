@@ -5,12 +5,16 @@ geopandas or cartopy is missing, or inputs are absent, builders log a warning
 and return ``None`` rather than failing the build.
 
 Each horizon is rendered once; PNGs are written next to the HTML output and
-referenced with ``<img src=...>`` — never base64-embedded.
+referenced with ``<img src=...>`` — never base64-embedded.  Across scenarios,
+identical map inputs reuse a previously written PNG via hardlink/copy.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -36,6 +40,14 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised when [maps] not installed
     _IMPORT_ERROR = exc
 
+#: Process-wide map of content fingerprint → first PNG path written this run.
+_MAP_PNG_BY_FINGERPRINT: dict[str, Path] = {}
+
+
+def clear_map_png_cache() -> None:
+    """Drop cross-scenario PNG reuse state (called at the start of a site build)."""
+    _MAP_PNG_BY_FINGERPRINT.clear()
+
 
 # ---------------------------------------------------------------------------
 # Public builders
@@ -43,24 +55,32 @@ except ImportError as exc:  # pragma: no cover - exercised when [maps] not insta
 
 def costs(ctx, node: str, section) -> Html | None:
     """Choropleth of nodal capital cost / GDP plus transmission capacity."""
-    return _build_maps_page(ctx, section, _render_costs_map)
+    return _build_maps_page(ctx, section, _render_costs_map, _fingerprint_costs, node)
 
 
 def hydrogen(ctx, node: str, section) -> Html | None:
     """Hydrogen pipelines and storage."""
-    return _build_maps_page(ctx, section, _render_hydrogen_map)
+    return _build_maps_page(
+        ctx, section, _render_hydrogen_map, _fingerprint_hydrogen, node
+    )
 
 
 def gas(ctx, node: str, section) -> Html | None:
     """Gas pipelines."""
-    return _build_maps_page(ctx, section, _render_gas_map)
+    return _build_maps_page(ctx, section, _render_gas_map, _fingerprint_gas, node)
 
 
 # ---------------------------------------------------------------------------
 # Page assembly
 # ---------------------------------------------------------------------------
 
-def _build_maps_page(ctx, section, render: Callable) -> Html | None:
+def _build_maps_page(
+    ctx,
+    section,
+    render: Callable,
+    fingerprint_fn: Callable,
+    node: str,
+) -> Html | None:
     if not _maps_available():
         return None
     if not hasattr(ctx, "networks") or not hasattr(ctx, "scenario"):
@@ -73,6 +93,7 @@ def _build_maps_page(ctx, section, render: Callable) -> Html | None:
 
     out_dir = ctx.config.output_dir(ctx.scenario.name)
     out_dir.mkdir(parents=True, exist_ok=True)
+    highlight = _highlight_node(ctx, node)
 
     images: list[tuple[int, str]] = []
     for horizon in ctx.horizons:
@@ -82,20 +103,134 @@ def _build_maps_page(ctx, section, render: Callable) -> Html | None:
             logger.warning("no network for horizon %s: %s", horizon, exc)
             continue
 
-        fig = render(network, regions, ctx)
+        filename = f"map_{section.id}_{horizon}.png"
+        if highlight:
+            filename = f"map_{section.id}_{horizon}_{highlight}.png"
+        path = out_dir / filename
+
+        fp = fingerprint_fn(network, regions, ctx, highlight=highlight)
+        if fp and _reuse_map_png(fp, path):
+            images.append((horizon, filename))
+            logger.info("reused map %s", path)
+            continue
+
+        fig = render(network, regions, ctx, highlight=highlight)
         if fig is None:
             continue
 
-        filename = f"map_{section.id}_{horizon}.png"
-        path = out_dir / filename
         fig.savefig(path, dpi=120, bbox_inches="tight")
         plt.close(fig)
+        if fp:
+            _MAP_PNG_BY_FINGERPRINT[fp] = path
         images.append((horizon, filename))
         logger.info("wrote map %s", path)
 
     if not images:
         return None
     return Html(_horizon_fragment(section.title, images))
+
+
+def _highlight_node(ctx, node: str) -> str | None:
+    """Region code to outline when maps are per-node; ``None`` for shared maps."""
+    # Shared builds still receive one node but must not bake a highlight into
+    # the single shared PNG.
+    if getattr(ctx.config.output, "shared_maps", True):
+        return None
+    if hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node):
+        return None
+    return node or None
+
+
+def _reuse_map_png(fingerprint: str, dest: Path) -> bool:
+    """Copy/hardlink a previously rendered PNG with the same inputs."""
+    src = _MAP_PNG_BY_FINGERPRINT.get(fingerprint)
+    if src is None or not src.is_file():
+        return False
+    if src.resolve() == dest.resolve():
+        return True
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    try:
+        os.link(src, dest)
+    except OSError:
+        shutil.copy2(src, dest)
+    return True
+
+
+def _hash_parts(*parts) -> str:
+    h = hashlib.sha256()
+    for part in parts:
+        if part is None:
+            h.update(b"\x00")
+        elif isinstance(part, pd.Series):
+            series = pd.to_numeric(part, errors="coerce").astype(float).round(6)
+            series.index = series.index.map(str)
+            series = series.sort_index()
+            h.update(series.to_csv(header=False).encode())
+        elif isinstance(part, pd.DataFrame):
+            frame = part.copy()
+            for col in frame.columns:
+                if pd.api.types.is_numeric_dtype(frame[col]):
+                    frame[col] = (
+                        pd.to_numeric(frame[col], errors="coerce").astype(float).round(6)
+                    )
+            frame.index = frame.index.map(str)
+            frame = frame.sort_index().sort_index(axis=1)
+            h.update(frame.to_csv().encode())
+        else:
+            h.update(repr(part).encode())
+    return h.hexdigest()
+
+
+def _fingerprint_costs(network, regions, ctx, *, highlight: str | None) -> str | None:
+    gdp = _gdp_bneur(ctx)
+    if gdp is None:
+        return None
+    # Hash the *plotted* choropleth (cost/GDP %), not raw nodal totals that
+    # may include unlocated residual mass invisible on the map.
+    costs = _nodal_costs_beur(network)
+    ratio = _cost_gdp_ratio(costs, gdp).round(2)  # map colour scale is coarse
+    line_caps = (
+        network.lines["s_nom_opt"]
+        if not network.lines.empty and "s_nom_opt" in network.lines.columns
+        else pd.Series(dtype=float)
+    )
+    link_caps = pd.Series(dtype=float)
+    if not network.links.empty and "p_nom_opt" in network.links.columns:
+        dc = network.links.carrier.isin(["DC", "B2B"])
+        link_caps = network.links.loc[dc, "p_nom_opt"]
+    # Capacities below the drawing threshold do not affect the PNG.
+    line_caps = line_caps[line_caps >= 500.0] if len(line_caps) else line_caps
+    link_caps = link_caps[link_caps >= 500.0] if len(link_caps) else link_caps
+    return _hash_parts("costs", ratio, line_caps, link_caps, highlight)
+
+
+def _fingerprint_hydrogen(network, regions, ctx, *, highlight: str | None) -> str | None:
+    if network.links.empty:
+        return None
+    h2 = network.links.carrier.str.contains("H2 pipeline", na=False)
+    if not h2.any():
+        return None
+    pipes = network.links.loc[h2, ["bus0", "bus1", "p_nom_opt"]]
+    pipes = pipes.loc[pipes["p_nom_opt"] >= 750.0]
+    storage = pd.Series(dtype=float)
+    if not network.stores.empty:
+        h2_store = network.stores.loc[network.stores.carrier == "H2"]
+        if not h2_store.empty and "location" in h2_store.columns:
+            storage = h2_store["e_nom_opt"].groupby(h2_store["location"]).sum()
+    return _hash_parts("hydrogen", pipes, storage, highlight)
+
+
+def _fingerprint_gas(network, regions, ctx, *, highlight: str | None) -> str | None:
+    if network.links.empty:
+        return None
+    gas = network.links.carrier.str.contains("gas pipeline", na=False)
+    if not gas.any():
+        return None
+    pipes = network.links.loc[gas, ["bus0", "bus1", "p_nom_opt"]]
+    pipes = pipes.loc[pipes["p_nom_opt"] >= 1e3]
+    return _hash_parts("gas", pipes, highlight)
 
 
 def _horizon_fragment(title: str, images: list[tuple[int, str]]) -> str:
@@ -270,7 +405,22 @@ def _draw_branch(
         )
 
 
-def _render_costs_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | None:
+def _outline_highlight(ax, regions: gpd.GeoDataFrame, highlight: str | None) -> None:
+    """Draw a thicker border around the selected region, if present."""
+    if not highlight or highlight not in regions.index:
+        return
+    regions.loc[[highlight]].plot(
+        ax=ax,
+        facecolor="none",
+        edgecolor="#c0392b",
+        linewidth=2.0,
+        zorder=5,
+    )
+
+
+def _render_costs_map(
+    network, regions: gpd.GeoDataFrame, ctx, *, highlight: str | None = None
+) -> Figure | None:
     gdp = _gdp_bneur(ctx)
     if gdp is None:
         return None
@@ -308,12 +458,15 @@ def _render_costs_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | None:
             color="#11875d", scale=1e3, lower_threshold=500.0,
         )
 
+    _outline_highlight(ax, regions, highlight)
     ax.set_title("System cost map")
     fig.tight_layout()
     return fig
 
 
-def _render_hydrogen_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | None:
+def _render_hydrogen_map(
+    network, regions: gpd.GeoDataFrame, ctx, *, highlight: str | None = None
+) -> Figure | None:
     if network.links.empty:
         logger.warning("hydrogen map: network has no links")
         return None
@@ -344,16 +497,32 @@ def _render_hydrogen_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | No
                 legend_kwds={"label": "H2 storage [TWh]", "shrink": 0.6},
             )
 
+    from types import SimpleNamespace
+
+    from .maps_pipes import group_pipes
+
+    h2_df = network.links.loc[h2_links]
+    grouped = group_pipes(h2_df)
+    pipe_view = SimpleNamespace(buses=network.buses, links=grouped)
     _draw_branch(
-        network, ax, component="links", mask=h2_links,
-        color="#11875d", scale=7e3, lower_threshold=750.0,
+        pipe_view,
+        ax,
+        component="links",
+        mask=pd.Series(True, index=grouped.index),
+        color="#11875d",
+        scale=7e3,
+        lower_threshold=750.0,
     )
+
+    _outline_highlight(ax, regions, highlight)
     ax.set_title("Hydrogen network")
     fig.tight_layout()
     return fig
 
 
-def _render_gas_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | None:
+def _render_gas_map(
+    network, regions: gpd.GeoDataFrame, ctx, *, highlight: str | None = None
+) -> Figure | None:
     if network.links.empty:
         logger.warning("gas map: network has no links")
         return None
@@ -401,6 +570,7 @@ def _render_gas_map(network, regions: gpd.GeoDataFrame, ctx) -> Figure | None:
         )
 
     regions.plot(ax=ax, facecolor="none", edgecolor="lightgrey", linewidth=0.3)
+    _outline_highlight(ax, regions, highlight)
     ax.set_title("Gas network")
     fig.tight_layout()
     return fig
