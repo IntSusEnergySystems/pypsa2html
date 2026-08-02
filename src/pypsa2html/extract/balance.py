@@ -162,7 +162,7 @@ _ONE_PORT_COMPONENT = {
 
 
 def _branch_flows(n, resolver, node: str, buses: pd.Index, aggregate: bool) -> pd.DataFrame:
-    supply = pd.DataFrame(index=n.snapshots)
+    parts: list[pd.DataFrame] = []
     for component in n.iterate_components(n.branch_components):
         n_port = 4 if component.name == "Link" else 2
         static = component.df
@@ -183,14 +183,16 @@ def _branch_flows(n, resolver, node: str, buses: pd.Index, aggregate: bool) -> p
             if not len(sel):
                 continue
             pnl = (-1) * component.pnl[key].loc[:, sel]
-            grouped = pnl.T.groupby(static.loc[sel, "carrier"]).sum().T
-            supply = pd.concat((supply, grouped), axis=1)
-    return supply
+            parts.append(pnl.T.groupby(static.loc[sel, "carrier"]).sum().T)
+    if not parts:
+        return pd.DataFrame(index=n.snapshots)
+    return pd.concat(parts, axis=1)
 
 
 def _one_port_flows(
     n, resolver, node: str, buses: pd.Index, aggregate: bool, supply: pd.DataFrame
 ) -> pd.DataFrame:
+    parts: list[pd.DataFrame] = [supply] if len(supply.columns) else []
     for component in n.iterate_components(n.one_port_components):
         static = component.df
         comp_key = _ONE_PORT_COMPONENT.get(component.name, f"{component.name.lower()}s")
@@ -205,9 +207,12 @@ def _one_port_flows(
         if not len(sel):
             continue
         pnl = component.pnl["p"].loc[:, sel].multiply(static.loc[sel, "sign"])
-        grouped = pnl.T.groupby(static.loc[sel, "carrier"]).sum().T
-        supply = pd.concat((supply, grouped), axis=1)
-    return supply
+        parts.append(pnl.T.groupby(static.loc[sel, "carrier"]).sum().T)
+    if not parts:
+        return supply if len(supply.columns) else pd.DataFrame(index=n.snapshots)
+    if len(parts) == 1:
+        return parts[0]
+    return pd.concat(parts, axis=1)
 
 
 def _import_export(n, resolver, node: str, aggregate: bool) -> pd.Series:

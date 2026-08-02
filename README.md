@@ -303,29 +303,54 @@ so they are not lost. Roughly in value order.
 
 ### Computational
 
-1. **Extract once per node, not once per (node × horizon).** Extraction re-runs
-   the full matmul/groupby pipeline per region — 18 times for a 6-region,
-   3-horizon run — when a single pass grouped by node would do. The single
-   biggest win available.
-2. **Vectorise the per-link loss calculation.** `n.links.apply(calculate_losses, axis=1)`
-   is a Python-level row apply over every link, repeated per call.
-3. **Vectorise cross-border flow accounting.** `for t in flows.index: for line in flows.columns:`
-   with a `.at[]` write per cell — O(8760 × n_lines) per country per horizon per carrier.
-4. **Deduplicate the energy-balance prologue.** ~110 identical lines appear in
-   five places (`plot_series_power`, `_cluster`, `_heat`, and twice in
-   `Dispatch_plots_weekly`). One `energy_balance(n, carrier, node)` replaces all
-   of them — and is where several dispatch-plot bugs live.
-5. **Render maps once.** `create_map_plots` and its two siblings render every
-   figure twice; the first loop computes a base64 image and discards it.
-   ~45 of 48 network deep-copies are wasted.
-6. **Cache the geojson and cost tables.** The regions geojson was re-read on
-   every map call (42 reads); `nodal_costs.csv` three times; the costs CSV once
-   per transmission call inside a double loop. `BuildContext.read_csv` caches
-   now, but the call sites could avoid the reads entirely.
-7. **Replace quadratic accumulation.** `pd.concat` inside 170- and 70-iteration
-   loops, and `df.loc[len(df)] = ...` row appends.
-8. **Stop embedding maps as base64.** 21.7 MB per maps page, and `raw_html/`
-   reached 204 MB. Writing PNGs alongside the HTML would cut this by ~90%.
+Progress tracker (✅ done / 🔧 residual polish / ☐ open):
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Extract once per horizon (shared matmuls across nodes) | ✅ |
+| 2 | Vectorise the per-link loss calculation | ✅ |
+| 3 | Vectorise cross-border flow accounting | ✅ |
+| 4 | Deduplicate the energy-balance prologue | ✅ |
+| 5 | Render maps once (no wasted deep-copies) | ✅ |
+| 6 | Cache the geojson and cost tables | ✅ |
+| 7 | Replace quadratic accumulation | ✅ |
+| 8 | Stop embedding maps as base64 | ✅ |
+
+1. **Extract once per horizon, share across nodes.** ✅ Snapshot-weighted
+   `weights @ links_t.pN` (and generator / load totals) run once per horizon via
+   `_link_port_totals` / `_one_port_totals` / `_load_totals` on `ctx._files`.
+   Assembled `energy_flows` / `carbon_flows` tables are cached per node so
+   `demand_table` and `indicators.for_node` do not re-extract. Ranking and
+   assembly remain per-node (entry suffixes are node-local).
+2. **Vectorise the per-link loss calculation.** ✅ Losses are the residual of
+   non-CO₂ port totals in `_link_flows` — no `n.links.apply(calculate_losses,
+   axis=1)`.
+3. **Vectorise cross-border flow accounting.** ✅
+   `extract/balance.py::_import_export` is a vectorised line/link sum; the
+   legacy O(8760 × n_lines) `.at[]` loop is gone. Cost-side import/export
+   loops were never ported (costs come from `nodal_costs.csv`).
+4. **Deduplicate the energy-balance prologue.** ✅ One
+   `extract/balance.py::energy_balance` replaces the five ~110-line copies;
+   all dispatch charts call it.
+5. **Render maps once.** ✅ `_build_maps_page` loads regions once, renders each
+   horizon once, and uses `NetworkCache` (no `deepcopy`). Shared maps page
+   via `output.shared_maps` (D8).
+6. **Cache the geojson and cost tables.** ✅ Regions geojson under
+   `ctx._files[("geojson", …)]`; nodal costs via `_load_nodal` + `read_csv`;
+   technology costs via `ctx.costs`; CLEVER industry / AFOLU CSVs via absolute
+   path cache keys.
+7. **Replace quadratic accumulation.** ✅ Flow / emission / balance helpers
+   accumulate in lists and `pd.concat` once. No `df.loc[len(df)] = …` row
+   appends in the hot paths.
+8. **Stop embedding maps as base64.** ✅ PNGs are written next to the HTML
+   (`map_{section}_{horizon}.png`) and referenced with `<img src=…>`.
+
+**Validation (2026-08-02):** rebuilt all three pypsa-wal scenarios (221 pages,
+832 s). Against the previous HTML tree: all 36 map PNGs byte-identical; all
+220 HTML bodies identical after stripping generation timestamps, colour
+strings, and nav chrome. The only surface diffs were footer clocks and, on
+18 `scen_demande_haute` cost/capacity pages, a fuller page-nav list in the
+new build (previous nav only listed Capacities/Costs).
 
 ### Structural
 

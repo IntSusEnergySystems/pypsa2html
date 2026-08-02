@@ -61,7 +61,14 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..context import BuildContext
-from .flows import MWH_PER_TWH, _node_value, _port_total, _resource, _select
+from .flows import (
+    _cache_get,
+    _link_port_totals,
+    _node_value,
+    _one_port_totals,
+    _resource,
+    _select,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -250,31 +257,26 @@ def _carrier_mask(static: pd.DataFrame, flow: CarbonFlow) -> pd.Series:
 class _Reductions:
     """Per-horizon annual totals, computed once for all 66 rows.
 
-    The original re-evaluated ``weights @ n.links_t.pN`` inside every one of
-    its 66 blocks -- 66 matrix products over the whole dispatch instead of one
-    per port.
+    Link and generator matmuls are shared across nodes via the horizon caches
+    in :mod:`pypsa2html.extract.flows`; each node only reindexes the result.
     """
 
     def __init__(self, ctx: BuildContext, node: str, horizon: int):
         self.network = ctx.networks[horizon]
-        weights = self.network.snapshot_weightings.generators
-        ports = sorted(
-            int(key[1:])
-            for key in self.network.links_t.keys()
-            if key.startswith("p") and key[1:].isdigit()
-        )
         self.selection = {
             component: _select(ctx, self.network, node, component, horizon)
             for component in ("links", "generators")
         }
+        # Full-network totals, sliced to this node's selection.
+        full_links = _link_port_totals(ctx, horizon)
         self.link_totals = {
-            port: _port_total(self.network, weights, port, self.selection["links"])
-            for port in ports
+            port: series.reindex(self.selection["links"]).fillna(0.0)
+            for port, series in full_links.items()
         }
-        generators = self.selection["generators"]
         self.generator_totals = (
-            (weights @ self.network.generators_t["p"]).reindex(generators).fillna(0.0)
-            / MWH_PER_TWH
+            _one_port_totals(ctx, horizon, "generators")
+            .reindex(self.selection["generators"])
+            .fillna(0.0)
         )
 
     def total(self, flow: CarbonFlow) -> float:
@@ -354,7 +356,11 @@ def _agriculture_ghg(ctx: BuildContext, node: str, horizon: int) -> float | None
     if not path.exists():
         logger.warning("features.agriculture_ghg is on but %s is missing -- skipped", path)
         return None
-    table = pd.read_csv(path, index_col=0)
+    table = _cache_get(
+        ctx,
+        ("csv_abs", str(path), (("index_col", 0),)),
+        lambda: pd.read_csv(path, index_col=0),
+    )
     columns = ["Total CH4 emissions from agriculture", "Total N2O emissions from agriculture"]
     missing = [c for c in columns if c not in table.columns]
     if missing:
@@ -383,26 +389,46 @@ def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataF
 
     # Order matters: sequestration is a balance over the rows above it, the net
     # emission is a balance over everything including the exogenous rows.
-    extra = [("co2 sequestration", STORED, "co2 sequestration", _net(STORED))]
+    extras: list[tuple] = [
+        ("co2 sequestration", "co2 sequestration", STORED, "co2 sequestration", _net(STORED))
+    ]
 
     lulucf = _lulucf(ctx, node, horizon)
     if lulucf is not None:
-        extra.append(("LULUCF", ATMOSPHERE, "LULUCF", lulucf))
+        extras.append(("LULUCF", "LULUCF", ATMOSPHERE, "LULUCF", lulucf))
     agriculture = _agriculture_ghg(ctx, node, horizon)
     if agriculture is not None:
-        extra.append(
-            ("Non-energy GHG Agriculture", "GHG Agriculture", ATMOSPHERE, agriculture)
+        extras.append(
+            (
+                "Non-energy GHG Agriculture",
+                "Non-energy GHG Agriculture",
+                "GHG Agriculture",
+                ATMOSPHERE,
+                agriculture,
+            )
         )
 
-    for label, source, target, value in extra:
-        balance.loc[len(balance)] = (label, label, source, target, value)
-
-    balance.loc[len(balance)] = (
-        "net co2 emissions",
-        "net co2 emissions",
-        ATMOSPHERE,
-        "net co2 emissions",
-        _net(ATMOSPHERE),
+    balance = pd.concat(
+        [balance, pd.DataFrame(extras, columns=balance.columns)],
+        ignore_index=True,
+    )
+    balance = pd.concat(
+        [
+            balance,
+            pd.DataFrame(
+                [
+                    (
+                        "net co2 emissions",
+                        "net co2 emissions",
+                        ATMOSPHERE,
+                        "net co2 emissions",
+                        _net(ATMOSPHERE),
+                    )
+                ],
+                columns=balance.columns,
+            ),
+        ],
+        ignore_index=True,
     )
     return balance
 
@@ -413,7 +439,14 @@ def carbon_flows(ctx: BuildContext, node: str) -> pd.DataFrame:
     Columns: ``code, label, unit`` plus one column per ``ctx.year_columns``,
     in MtCO2.  Every code of ``data/carrier_flows_carbon.csv`` is present, at
     ``0.0`` when the process does not exist in the model.
+
+    Snapshot-weighted totals are shared with energy extraction via the
+    horizon caches; the assembled table is cached per node.
     """
+    cache_key = ("carbon_flows", str(node))
+    if cache_key in ctx._files:
+        return ctx._files[cache_key].copy()
+
     values: dict[str, pd.Series] = {}
     for column in ctx.year_columns:
         horizon = int(column)
@@ -445,4 +478,6 @@ def carbon_flows(ctx: BuildContext, node: str) -> pd.DataFrame:
     columns = list(values)
     aggregation = {"label": "first", "unit": "first", **{c: "sum" for c in columns}}
     grouped = out.groupby("code", as_index=False, sort=False).agg(aggregation)
-    return grouped[["code", "label", "unit", *columns]]
+    result = grouped[["code", "label", "unit", *columns]]
+    ctx._files[cache_key] = result
+    return result.copy()

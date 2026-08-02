@@ -140,7 +140,7 @@ def _select(ctx: BuildContext, network, node: str, component: str, horizon: int)
     if resolver.strategy == "substring":  # legacy byte-comparison mode
         return static.index[resolver.mask(component, node)]
     if component == "links":
-        return static.index[_link_nodes(ctx, network, horizon) == node]
+        return static.index[_cached_link_nodes(ctx, horizon) == node]
     return static.index[resolver.bus_nodes(static["bus"]) == node]
 
 
@@ -170,21 +170,88 @@ def _port_total(network, weights, port: int, index: pd.Index) -> pd.Series:
     return total.reindex(index).fillna(0.0) / MWH_PER_TWH
 
 
-def _link_flows(network, index: pd.Index) -> pd.DataFrame:
+def _cache_get(ctx: BuildContext, key: tuple, factory):
+    """Memoize ``factory()`` on ``ctx._files`` under ``key``."""
+    if key not in ctx._files:
+        ctx._files[key] = factory()
+    return ctx._files[key]
+
+
+def _link_port_totals(ctx: BuildContext, horizon: int) -> dict[int, pd.Series]:
+    """Full-network link port totals in TWh — computed once per horizon.
+
+    ``weights @ links_t.pN`` is the expensive step; every node then reindexes
+    the same Series rather than repeating the matmul.
+    """
+
+    def factory() -> dict[int, pd.Series]:
+        network = ctx.networks[horizon]
+        weights = network.snapshot_weightings.generators
+        return {
+            port: _port_total(network, weights, port, network.links.index)
+            for port in _link_ports(network)
+        }
+
+    return _cache_get(ctx, ("link_port_totals", horizon), factory)
+
+
+def _cached_link_nodes(ctx: BuildContext, horizon: int) -> pd.Series:
+    return _cache_get(
+        ctx,
+        ("link_nodes", horizon),
+        lambda: _link_nodes(ctx, ctx.networks[horizon], horizon),
+    )
+
+
+def _one_port_totals(ctx: BuildContext, horizon: int, component: str) -> pd.Series:
+    """Full-network annual totals for a one-port component, in TWh."""
+
+    def factory() -> pd.Series:
+        network = ctx.networks[horizon]
+        weights = network.snapshot_weightings.generators
+        dynamic = getattr(network, f"{component}_t")["p"]
+        return (weights @ dynamic) / MWH_PER_TWH
+
+    return _cache_get(ctx, ("one_port_totals", horizon, component), factory)
+
+
+def _load_totals(ctx: BuildContext, horizon: int) -> pd.Series:
+    """Full-network annual load ``p_set`` totals, in TWh."""
+
+    def factory() -> pd.Series:
+        network = ctx.networks[horizon]
+        weights = network.snapshot_weightings.generators
+        p_set = network.get_switchable_as_dense("Load", "p_set")
+        return (weights @ p_set) / MWH_PER_TWH
+
+    return _cache_get(ctx, ("load_totals", horizon), factory)
+
+
+def _link_flows(
+    network,
+    index: pd.Index,
+    *,
+    totals: dict[int, pd.Series] | None = None,
+) -> pd.DataFrame:
     """One row per (carrier, bus0 carrier, port carrier) link flow, plus losses."""
     columns = ["carrier", "source", "target", "value", "origin", "port"]
     if len(index) == 0:
         return pd.DataFrame(columns=columns)
 
     links = network.links.loc[index]
-    weights = network.snapshot_weightings.generators
     ports = _link_ports(network)
     bus_carrier = {
         port: links[f"bus{port}"].map(network.buses.carrier)
         for port in ports
         if f"bus{port}" in links.columns
     }
-    total = {port: _port_total(network, weights, port, index) for port in ports}
+    if totals is None:
+        weights = network.snapshot_weightings.generators
+        total = {port: _port_total(network, weights, port, index) for port in ports}
+    else:
+        total = {
+            port: totals[port].reindex(index).fillna(0.0) for port in ports if port in totals
+        }
 
     rows = []
     for port in ports[1:]:
@@ -242,7 +309,13 @@ def _group(flows: pd.DataFrame) -> pd.DataFrame:
     return flows.groupby(keys, as_index=False, sort=True)["value"].sum()
 
 
-def _heat_pump_rows(network, index: pd.Index, flows: pd.DataFrame) -> pd.DataFrame:
+def _heat_pump_rows(
+    network,
+    index: pd.Index,
+    flows: pd.DataFrame,
+    *,
+    totals: dict[int, pd.Series] | None = None,
+) -> pd.DataFrame:
     """Restate the heat-pump rows as *ambient* heat plus total heat output.
 
     In both reference models a heat pump link is oriented heat-first
@@ -260,9 +333,12 @@ def _heat_pump_rows(network, index: pd.Index, flows: pd.DataFrame) -> pd.DataFra
     if not is_pump.any():
         return flows
 
-    weights = network.snapshot_weightings.generators
     pumps = links[is_pump]
-    bus0_total = -_port_total(network, weights, 0, pumps.index)
+    if totals is not None and 0 in totals:
+        bus0_total = -totals[0].reindex(pumps.index).fillna(0.0)
+    else:
+        weights = network.snapshot_weightings.generators
+        bus0_total = -_port_total(network, weights, 0, pumps.index)
     output = pd.DataFrame(
         {
             "carrier": pumps["carrier"],
@@ -302,9 +378,7 @@ def _one_port_flows(
     columns = ["carrier", "source", "target", "value", "origin", "port"]
     if len(index) == 0:
         return pd.DataFrame(columns=columns)
-    weights = network.snapshot_weightings.generators
-    dynamic = getattr(network, f"{component}_t")["p"]
-    total = (weights @ dynamic).reindex(index).fillna(0.0) / MWH_PER_TWH
+    total = _one_port_totals(ctx, horizon, component).reindex(index).fillna(0.0)
     frame = pd.DataFrame(
         {
             "carrier": static.loc[index, "carrier"],
@@ -337,9 +411,7 @@ def _load_flows(
     columns = ["carrier", "source", "target", "value", "origin", "port"]
     if len(index) == 0:
         return pd.DataFrame(columns=columns)
-    weights = network.snapshot_weightings.generators
-    p_set = network.get_switchable_as_dense("Load", "p_set")
-    total = (weights @ p_set).reindex(index).fillna(0.0) / MWH_PER_TWH
+    total = _load_totals(ctx, horizon).reindex(index).fillna(0.0)
     loads = network.loads.loc[index]
     frame = pd.DataFrame(
         {
@@ -438,7 +510,12 @@ def _clever_industry(ctx: BuildContext, node: str, horizon: int) -> dict[str, fl
     if not path.exists():
         logger.warning("features.clever_industry is on but %s is missing -- skipped", path)
         return None
-    table = pd.read_csv(path, index_col=0).T
+    raw = _cache_get(
+        ctx,
+        ("csv_abs", str(path), (("index_col", 0),)),
+        lambda: pd.read_csv(path, index_col=0),
+    )
+    table = raw.T
     wanted = {
         "h2_non_energy": "Non-energy consumption of hydrogen for the feedstock production",
         "h2_industry": "Total Final hydrogen consumption in industry",
@@ -542,10 +619,11 @@ def _rank_entries(flows: pd.DataFrame) -> pd.Series:
 def _flows_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.Series:
     """``entry -> TWh`` for one node and one planning horizon."""
     network = ctx.networks[horizon]
+    totals = _link_port_totals(ctx, horizon)
 
     links = _select(ctx, network, node, "links", horizon)
-    flows = _link_flows(network, links)
-    flows = _heat_pump_rows(network, links, flows)
+    flows = _link_flows(network, links, totals=totals)
+    flows = _heat_pump_rows(network, links, flows, totals=totals)
     flows = _orient(flows)
 
     # DAC has no single output bus: the legacy code relabelled every DAC row so
@@ -627,7 +705,15 @@ def energy_flows(ctx: BuildContext, node: str) -> pd.DataFrame:
     Columns: ``code, label, unit`` plus one column per ``ctx.year_columns``,
     in TWh.  Every code of ``data/carrier_flows_energy.csv`` is present, at
     ``0.0`` when the carrier does not exist in the model.
+
+    Snapshot-weighted port totals are computed once per horizon and shared
+    across nodes; the assembled table is cached per node so ``demand_table``
+    and ``indicators.for_node`` do not re-extract.
     """
+    cache_key = ("energy_flows", str(node))
+    if cache_key in ctx._files:
+        return ctx._files[cache_key].copy()
+
     values: dict[str, pd.Series] = {}
     for column in ctx.year_columns:
         horizon = int(column)
@@ -637,4 +723,6 @@ def energy_flows(ctx: BuildContext, node: str) -> pd.DataFrame:
             continue
         logger.info("energy flows for node %s, horizon %s", node, horizon)
         values[column] = _flows_for_horizon(ctx, node, horizon)
-    return _assemble(ctx, values, ctx.taxonomy.carrier_flows_energy)
+    result = _assemble(ctx, values, ctx.taxonomy.carrier_flows_energy)
+    ctx._files[cache_key] = result
+    return result.copy()

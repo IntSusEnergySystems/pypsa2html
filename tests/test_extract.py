@@ -154,3 +154,63 @@ def test_energy_flows_reads_a_real_network():
     table = energy_flows(ctx, "BE")
     assert {"code", "label", "unit"}.issubset(table.columns)
     assert set(ctx.year_columns).issubset(table.columns)
+
+
+@pytest.mark.needs_model
+@requires_model("negawatt")
+def test_horizon_port_totals_are_shared_across_nodes():
+    """Matmul of ``weights @ links_t.pN`` runs once per horizon, not per node."""
+    from pypsa2html.config import load_config
+    from pypsa2html.context import build_context
+    from pypsa2html.extract.flows import _link_port_totals, energy_flows
+
+    config_path = Path(__file__).resolve().parents[1] / "config" / "negawatt.yaml"
+    ctx = build_context(load_config(config_path), "ref")
+    horizon = ctx.horizons[0]
+
+    first = _link_port_totals(ctx, horizon)
+    second = _link_port_totals(ctx, horizon)
+    assert first is second
+    assert ("link_port_totals", horizon) in ctx._files
+
+    # Two nodes share the same horizon cache; both tables are well-formed.
+    be = energy_flows(ctx, "BE")
+    de = energy_flows(ctx, "DE")
+    assert list(be.columns) == list(de.columns)
+    assert ("energy_flows", "BE") in ctx._files
+    assert ("energy_flows", "DE") in ctx._files
+
+
+@pytest.mark.needs_model
+@requires_model("negawatt")
+def test_energy_flows_is_cached_per_node():
+    """A second call returns a copy of the cached frame, not a re-extract."""
+    from pypsa2html.config import load_config
+    from pypsa2html.context import build_context
+    from pypsa2html.extract.flows import energy_flows
+
+    config_path = Path(__file__).resolve().parents[1] / "config" / "negawatt.yaml"
+    ctx = build_context(load_config(config_path), "ref")
+    a = energy_flows(ctx, "BE")
+    b = energy_flows(ctx, "BE")
+    assert a is not b
+    pd.testing.assert_frame_equal(a, b)
+    # Mutating the returned copy must not poison the cache.
+    a.iloc[0, 0] = "mutated"
+    c = energy_flows(ctx, "BE")
+    assert c.iloc[0, 0] != "mutated"
+
+
+def test_branch_and_one_port_flows_concat_once():
+    """Dispatch balance helpers accumulate parts then concat, not concat-in-loop."""
+    import inspect
+
+    from pypsa2html.extract import balance
+
+    branch_src = inspect.getsource(balance._branch_flows)
+    one_src = inspect.getsource(balance._one_port_flows)
+    assert "parts.append" in branch_src
+    assert "parts.append" in one_src
+    # No quadratic concat inside the component loop.
+    assert branch_src.count("pd.concat") == 1
+    assert one_src.count("pd.concat") == 1
