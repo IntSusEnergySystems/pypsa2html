@@ -1,0 +1,57 @@
+code,label,unit,2020,2030,2040,2050
+emmagrgasz,Agriculture gas emissions,MtCO2,0.7346880683996722,0.0,0.0,0.0
+emmccgt,CCGT emissions,MtCO2,4.979320992964725,4.111627216641226,0.7898322131904235,0.5728357458461726
+emmcoalchp,Coal-fired CHP,MtCO2,0.0375569568,0.0,0.0,0.0
+emmcoalgen,Coal-fired power generation,MtCO2,0.0,0.0,0.0,0.0
+emmdac,DAC,MtCO2,0.0,0.0,0.0,1.31774630870392
+emmfischer,Fischer-Tropsch,MtCO2,0.0,11.29525145392998,6.149176304401859,0.0
+emmehvcatm,HVC to air,MtCO2,0.0,5.724580115481121,0.0,0.0
+emmluf,LULUCF,MtCO2,1.30863670236719,1.11301795083198,0.869085357562898,0.760525140609654
+emmghgagri,Non-energy GHG Agriculture,MtCO2,0.0,7.74886955421572,5.56150281138801,4.588033030349999
+emmocgt,OCGT emissions,MtCO2,0.0,0.0,0.2927058298577671,0.2120031119452289
+emmoilind,Oil for industry,MtCO2,3.280420385638633,0.0,0.0,0.0
+emmoilgeb,Oil generation,MtCO2,0.01054262169049674,0.0,0.0,0.0
+emmrail,Rail oil emissions,MtCO2,0.07933181020156331,0.0,0.0,0.0
+emmewastestm,Waste CHP CC,MtCO2,0.0,0.0,3.803864378611835,2.631937187761848
+emmewastestmatm,Waste CHP CC1,MtCO2,0.0,0.0,0.4226515976235369,0.292437465306872
+emmewasteatm,Waste CHP emissions,MtCO2,0.0,0.0,0.4231752633611665,0.2925069604728264
+emmoilagr,agriculture machinery oil emissions,MtCO2,0.4860632109402656,0.3988361273805905,0.3988360149784678,0.3988380240175923
+emmbiogasatcc,biogas to gas CC,MtCO2,0.0,0.0,0.2014423835387701,1.399503008586874
+emmbiogasccc,biogas to gas CC,MtCO2,0.0,0.0,0.306270382712712,2.127786191355304
+emmbiogascc,biogas to gas CC2,MtCO2,0.0,0.0,0.5077127662514821,3.527289199942177
+emmbmatmp,biomass powerplants,MtCO2,1.026422161925509,0.0,0.0,0.0
+emmbnpower,biomass powerplants,MtCO2,1.026422161925509,0.0,0.0,0.0
+emmseq,co2 sequestration,MtCO2,0.0,2.318678123645249,16.38862330476215,21.2564278502186
+emmcoal,coal emissions,MtCO2,6.869486682746003,4.731296367306371,1.445125407457265,0.0
+emmfossgas,fossil gas,MtCO2,0.0,28.18645556808222,12.71264398124566,9.578303797953156
+emmgas,gas for industry,MtCO2,10.30567762831283,8.035098907641313,0.0,0.0
+emmgascc,gas for industry CC,MtCO2,0.0,0.1330710104541648,0.3256503165565309,0.1109163154492323
+emmgasccx,gas for industry CC,MtCO2,0.0,1.197639094087483,4.857158654305873,2.106643833315018
+emmavi,kerosene for aviation,MtCO2,5.13067626504,5.096183687894015,5.096183398779832,5.09618530812588
+emmoiltra,land transport oil emissions,MtCO2,24.41997919303956,16.91348446241774,7.248634275688549,0.0
+emmliggen,lignite power generation,MtCO2,0.0,0.0,0.0,0.0
+emmoil,naphtha for industry,MtCO2,0.0,0.0,3.490472640960203,2.414859809649314
+emmnet,net co2 emissions,MtCO2,0.0,57.22278824852228,20.15641621724746,5.616688206838795
+emmoilchp,oil fired CHP,MtCO2,0.01095172838950326,0.0,0.0,0.0
+emmprocess,process emissions,MtCO2,15.21686947921457,0.0,0.0,0.0
+emmprocessccst,process emissions CC,MtCO2,0.0,8.133724748632936,7.117937443598082,5.92762914504826
+emmresbmatm,residential urban decentral biomass boiler,MtCO2,0.0,0.7580913566521265,0.0,0.0
+emmresbmm,rural biomass boiler,MtCO2,0.0,0.0,0.0,0.0
+emmresbmmatm,rural biomass boiler,MtCO2,0.0,0.0,0.0,0.0
+emmresbo,rural gas boiler,MtCO2,7.626753418679997,0.4382718197785193,0.1084013055216871,0.1349491700914238
+emmresoil,rural oil boiler,MtCO2,7.390622906279997,0.0,0.0,0.0
+emmmetwati,shipping methanol emissions,MtCO2,0.0,0.0,0.1259294919753772,0.1574143710791359
+emmoilwati,shipping oil emissions,MtCO2,26.7829395336,0.3002570062896543,0.1501271472416607,0.0
+emmindbm,solid biomass for industry,MtCO2,0.750878528399341,0.0,0.0,0.0
+emmindbmatm,solid biomass for industry,MtCO2,0.750878528399341,0.0,0.0,0.0
+emmindatmbm,solid biomass for industry CC,MtCO2,0.0,4.28210674871223,6.554878429531457,7.920580718875829
+emmindbeccs,solid biomass for industry CC,MtCO2,0.0,4.28210674871223,6.554878429531457,7.920580718875829
+emmgaschp,urban central gas CHP,MtCO2,4.184424889825592,2.538458916723842,1.964214056828451,1.993317288538641
+emmcental,urban central gas boiler,MtCO2,0.0,0.0,0.0,0.0
+emmurbbbo,urban central gas boiler,MtCO2,0.0,0.2641899470222974,0.0,0.0
+emmbmchp,urban central solid biomass CHP,MtCO2,1.53308075349751,0.0,0.0,0.0
+emmbmchpatm,urban central solid biomass CHP,MtCO2,1.53308075349751,0.0,0.0,0.0
+emmresbm,urban decentral biomass boiler,MtCO2,0.1715998283999996,0.7580913566521265,0.0,0.0
+emmresbmatm,urban decentral biomass boiler,MtCO2,0.1715998283999996,0.0,0.0,0.0
+emmresubbo,urban decentral gas boiler,MtCO2,4.42773887424866,11.59206660658876,4.382107112824206,4.478596166086152
+emmresuoil,urban decentral oil boiler,MtCO2,2.197210836600001,0.2581788011927883,0.0,0.0

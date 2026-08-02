@@ -1,0 +1,122 @@
+code,label,unit,2020,2030,2040,2050
+prebev,BEV charging,TWh,0.1504242687284478,9.488787129548744,19.71195910636509,26.69932116100091
+prebevloss,BEV charging losses,TWh,0.0,1.054309681060973,2.190217678485002,2.966591240111203
+proelccms,Coal-fired power generation,TWh,0.04851454636398782,0.0,0.0,0.0
+predacelc,DAC,TWh,0.0,0.0,0.0,1.31774630870392
+predachee,DAC,TWh,0.0,0.0,0.0,1.844139933965717
+prodomboi,Domestic production of solid biomass,TWh,13.895639,0.0,0.0,0.0
+profischer,Fischer-Tropsch,TWh,0.0,43.93330009307657,23.91744964761515,0.182789410691701
+profischerh,Fischer-Tropsch heat,TWh,0.0,2.075697219666632,1.130017176717736,0.0
+profischerlo,Fischer-Tropsch losses,TWh,0.0,8.976359499617947,4.886763022494584,0.0
+proelcgaz,Gas-fired power generation,TWh,28.25795640543278,12.04416053359551,2.31369552257022,1.67801391648621
+proelcgazoc,Gas-fired power generation,TWh,0.0,0.0,0.6208911542437489,0.4497062962657734
+proelcgazoclo,Gas-fired power generation losses,TWh,0.0,0.0,0.8574211177651757,0.6210164913363928
+prelosshvc,HVC to air losses,TWh,0.0,22.26596699914867,0.0,0.0
+prbrchpac,Heat energy output from centralised heat pumps,TWh,0.0,1.721581499577913,1.26115078181904,10.43112625221161
+prbrchpacc,Heat energy output from centralised heat pumps,TWh,0.0,2.581458224902525,1.860232421659143,15.02161499010671
+prbchresh,Heat energy output from centralised resistive heaters,TWh,0.0,1.216791300857842,2.120647528807414,3.210751953091044
+prbrchgaz,Heat energy output from gas-fired boilers,TWh,0.0,1.387664368197926,0.0,0.0
+prbvapchpcms,Heat output from coal-fired CHP plants,TWh,0.01142754357954495,0.0,0.0,0.0
+prbvapchpgass,Heat output from gas CHP plants,TWh,0.0,5.256281667169344,4.113638612905539,4.17179627891113
+prbvapchpgass,Heat output from methane-fired CHP plants,TWh,6.892167547764831,0.0,0.0,0.0
+prbvapchppet,Heat output from oil-fired CHP plants,TWh,0.03390705570024453,0.0,0.0,0.0
+prbvapchpboi,Heat output from solid biomass CHP plants,TWh,1.512608852955376,0.0,0.0,0.0
+dqzf,Losses from gas CHP plants,TWh,0.0,2.30763585387923,1.692760309278667,1.723585006326408
+proelcnuc,Nuclear production,TWh,41.47458870162276,16.09116373145461,0.0,0.0
+proeofac,Offshore wind-generated electricity,TWh,0.0,35.9759850343881,30.75804848180159,32.39560741124864
+prespetcfind,Oil for industry,TWh,12.200197,0.0,0.0,0.0
+proelcpet,Oil-fired power generation,TWh,0.08824941954348446,0.0,0.0,0.0
+proeon,Onshore wind-generated electricity,TWh,0.0,15.19421639781193,51.84220616396223,56.74351538202423
+prbelcchpcms,Power output from coal-fired CHP plants,TWh,0.04851454636398782,0.0,0.0,0.0
+prbelcchpgaz,Power output from gas CHP plants,TWh,0.0,5.256281667169344,4.113638612905539,4.17179627891113
+prbelcchpgaz,Power output from methane-fired CHP plants,TWh,12.72845048975645,0.0,0.0,0.0
+prbelcchppet,Power output from oil-fired CHP plants,TWh,0.07054319295420838,0.0,0.0,0.0
+prbelcchpboi,Power output from solid biomass CHP plants,TWh,2.037677032325336,0.0,0.0,0.0
+prohyd,Production of H2 via electrolysis,TWh,0.0,0.1338689929825671,0.3856648231880673,0.3596425039727365
+presvapcfdhs,Residential and tertiary DH demand,TWh,0.8216940000000005,8.978516037885278,17.35358711137892,26.70503227031539
+presenccfb,Residential and tertiary biomass for heating,TWh,0.0,1.428695415317469,0.0,0.0
+demandheat,Residential and tertiary heat demand,TWh,0.0,5.363294725268044,5.003614772910187,4.335637718531308
+demandheatc,Residential and tertiary heat demand,TWh,103.698384,107.0962740471,92.10778986251769,69.66530157473586
+prospv,Solar photovoltaic Production,TWh,4.2525,9.437677388001546,7.938332544617239,7.516925438919315
+prospvr,Solar photovoltaic Production Rooftop,TWh,0.0,4.11587514762377,40.63878377109349,48.71592144111518
+prohdr,Total hydropower production,TWh,0.8792000000000001,0.0,0.0,0.0
+prohdror,Total ror production,TWh,0.302,0.291288059788872,0.2712468775668521,0.275963528648425
+lossgas,Transformation losses (gas-fired powerplants),TWh,0.0,8.72163348984503,1.675356059199596,1.215095911019713
+lossobb,Transformation losses (oil-fired boilers),TWh,0.0,0.3689639986937336,0.0,0.0
+lossbbb,Transformation losses (solid biomass boilers),TWh,0.0,1.277277054023503,0.0,0.0
+lossgasind,Transformation losses gas for industry CC,TWh,0.0,0.6720758103745688,2.617580288314348,1.11997987311326
+lossgbs,Transformation losses rural gas boiler,TWh,0.0,0.6122274846725212,0.0,0.0
+pretespitsdhs,Water pits TES charging,TWh,0.0,3.36287186677414,5.340357189431963,8.035550865752507
+pretespitsdhd,Water pits TES discharging,TWh,0.0,3.310444064875652,5.232205428145992,7.819185318449609
+preselccfagr,agriculture electricity,TWh,1.143709785543598,1.205990470019592,1.205990470019592,1.205990470019592
+pregazcfagr,agriculture heat,TWh,4.001511999998215,0.0,0.0,0.0
+presvapcfagr,agriculture heat,TWh,0.0,6.609539220881983,6.609539220881983,6.609539220881983
+prespetcfagr,agriculture oil,TWh,1.822099306268802,1.551298654549168,1.551298654549168,1.551298654549168
+prespetcfagrr,agriculture oil to demand,TWh,0.0,1.551287932246561,1.551287495054329,1.551295309286629
+preslqfcfavi,aviation oil demand,TWh,19.82180599999999,19.82180599999987,19.82180599999987,19.82180599999987
+preslqfcfaviker,aviation oil demand to demand,TWh,0.0,19.8217957522132,19.82179462769285,19.82180205416523
+probattchg,battery charger,TWh,0.0,0.8997605978174887,12.23657867464928,12.46373842719037
+probattchlos,battery charger losses,TWh,0.0,0.0,0.2523271379810446,0.2570113370326919
+probattdhg,battery discharger,TWh,0.0,0.8815866706505333,11.9893601759632,12.21192307475953
+probattdhlos,battery discharger losses,TWh,0.0,0.0,0.247229313018039,0.2518187216074192
+prodombgrcc,biogas to gas CC,TWh,0.0,0.0,1.546820114710666,10.74639490583487
+cmscfind,coal for industry,TWh,20.43881786000001,14.07705999999988,4.29970000000003,0.0
+cmscfinddem,coal for industry demand,TWh,0.0,14.07704959031946,4.299688805287906,0.0
+preserail,electricity demand for rail network,TWh,1.6057,1.90108,1.90108,1.90108
+preselccfres,electricity demand of residential and tertairy,TWh,18.4064,34.56916764211378,34.56916764211378,34.56916764211378
+preselccfterr,electricity demand of residential and tertairy,TWh,21.50627573127155,0.0,0.0,0.0
+prelcdistloss,electricity distribution grid losses,TWh,0.0,3.715602441012791,3.65527610906458,3.830426189075329
+preselccfind,electricity for Industry,TWh,38.26694889020199,44.21999999999962,61.10000000000038,71.06000000000053
+preelchhydcomp,electricity to H2 compression,TWh,0.0,0.5291881232925606,0.2639176707630896,0.0
+prehvvap,electrolysis to heat,TWh,0.0,0.0,0.1996715879989088,0.1861907816029199
+presgazcfind,gas for Industry,TWh,49.47096600000001,40.58130761435007,0.0,0.0
+presgazcfindd,gas for Industry,TWh,0.0,6.048682293371127,23.55822259482909,10.07981885801932
+preshydcfind,hydrogen for industry,TWh,0.0,0.0,1.569999999999984,3.29999999999998
+prohydclamm,hydrogen to ammonia,TWh,0.0,5.46,5.46,5.46
+preselccftra,land transport EV,TWh,0.1504242687284478,8.789063502903401,17.5781270058068,24.90234659155965
+preshydcftra,land transport hydrogen demand,TWh,0.0,0.0,5.034039929648887,7.551059894473331
+proelign,lignite power generation,TWh,0.0,0.0,0.0,0.0
+presvapcfind,low-temperature heat for industry,TWh,4.398749999998899,3.550000000000018,2.699999999999979,2.289999999999981
+presmethcfind,methanol for Industry,TWh,0.0,0.6700000000000018,0.6700000000000018,0.6700000000000018
+presmethcfindmeth,methanol to demand,TWh,0.0,0.6699911165521167,0.6699896584125679,0.6699978406181955
+prespetcfneind,naphtha for non-energy,TWh,84.08093700000002,84.40000000000023,84.40000000000023,84.40000000000023
+prespetcfproil,naphtha losses,TWh,0.0,2.468295319753174,2.559008933221243,2.476291504619095
+preserailoil,oil demand for rail network,TWh,0.29538,0.0,0.0,0.0
+prespetcfneindoil,oil to naphtha for non-energy,TWh,0.0,84.39999108247414,84.39998917341576,84.39999618319322
+prespetcfprodoil,oil to process emissions,TWh,0.0,2.468295319753174,2.559008933221243,2.476291504619095
+preslqfcftra,oil to transport demand,TWh,98.85117626872844,65.78563517750939,28.19384364750402,0.0
+preslqfcfdem,oil to transport oil demand,TWh,0.0,65.7856260693028,28.19383226638875,0.0
+presenccfres,rural biomass boiler,TWh,6.671165999999999,0.0,0.0,0.0
+presgazcfgg,rural gas boiler,TWh,22.25245078818944,1.60126655461293,0.5392691209033422,0.6713394858476656
+prespaccfta,rural ground heat pump,TWh,0.0,7.268937392294692,8.12690900706277,7.260017922188643
+prespaccftaa,rural ground heat pump,TWh,0.0,10.25986538712406,11.47794633919879,10.24759259184088
+prespaccftaa,rural ground heat pumps,TWh,0.4801885187635769,0.0,0.0,0.0
+prespetcfres,rural oil boiler,TWh,8.271731000000004,0.0,0.0,0.0
+preehplyy,rural resistive heater,TWh,0.0,0.0,0.1122381794824335,0.1756643365239633
+preehplyy,rural resistive heaters,TWh,5.884681349246002,0.0,0.0,0.0
+prerurtescharg,rural water tanks charger,TWh,0.0,0.1089630761085798,0.9543211481411522,0.3468150805120064
+prerurtesdischarg,rural water tanks discharger,TWh,0.0,0.1087274731077877,0.9519385046570986,0.3441414127725981
+preshydwati,shipping hydrogen,TWh,0.0,0.0,0.2335742399999979,0.5839355999999989
+presngvcffrewati,shipping methanol,TWh,0.0,0.1904137826086955,0.5077700869565183,0.6347126086956446
+presngvcffrewatidm,shipping methanol to demand,TWh,0.0,0.1904058362232924,0.5077603045939183,0.634710485628184
+preslqfcffrewati,shipping oil,TWh,96.79678300000002,1.167871199999998,0.5839355999999989,0.0
+presenccfind,solid biomass for Industry,TWh,8.809667,0.0,0.0,0.0
+presenccfindd,solid biomass for Industry,TWh,0.0,11.6774113681817,17.54898563354214,21.07740799118323
+presenccfinddloss,solid biomass for Industry cc losses,TWh,0.0,1.297490152020185,1.949887292615789,2.341934221242584
+proelcboi,solid biomass power plants,TWh,4.881590927036983,0.0,0.0,0.0
+prespaccffff,urban decentral air heat pump,TWh,0.0649838315125811,61.88504544579369,69.70893181843851,43.29356249720114
+prespaccfftt,urban decentral air heat pump,TWh,0.0,35.98978525909168,40.29732160676181,25.29018713469132
+presenccfb,urban decentral biomass boiler,TWh,0.6080549999999988,0.0,0.0,0.0
+presgazcfg,urban decentral gas boiler,TWh,37.76368299999999,42.47591163146274,21.79956355924095,22.27988629571835
+lossgbss,urban decentral gas boiler losses,TWh,0.0,16.06987931090472,0.3322905459318013,0.3392862602723066
+prespetcfo,urban decentral oil boiler,TWh,27.81176999999999,0.6352320386177734,0.0,0.0
+preehplx,urban decentral resistive heater,TWh,5.441101395546113,0.6797635519788063,2.457117692389863,4.571596005595473
+lossrhh,urban decentral resistive heater losses,TWh,0.0,0.0,0.2730130769322052,0.5079551117328289
+preurbtescharg,urban decentral water tanks charger,TWh,0.0,0.1038751051614741,0.748901943590458,0.312084721177399
+preurbtesdischarg,urban decentral water tanks discharger,TWh,0.0,0.1036581319231666,0.7482873493720618,0.3105910629553671
+prevtg,vehicle to grid,TWh,0.0,0.629758665125814,1.920459085760168,1.617280541984058
+prevtgloss,vehicle to grid losses,TWh,0.0,0.0,0.2133843428622413,0.1796978379982281
+prewstelccc,waste CHP CC,TWh,0.0,0.0,3.490040224639321,2.414801288826952
+dzzz,waste CHP CC losses,TWh,0.0,0.0,0.4191993675379297,0.290046025304699
+prewstvapcc,waste CHP CC to heat,TWh,0.0,0.0,12.52995129166317,8.669616525108799
+prowind,wind-generated electricity,TWh,9.755400000000002,0.0,0.0,0.0
