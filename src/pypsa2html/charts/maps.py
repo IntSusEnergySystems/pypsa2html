@@ -7,6 +7,11 @@ and return ``None`` rather than failing the build.
 Each horizon is rendered once; PNGs are written next to the HTML output and
 referenced with ``<img src=...>`` — never base64-embedded.  Across scenarios,
 identical map inputs reuse a previously written PNG via hardlink/copy.
+
+Rendering follows the legacy ``plot_map`` / ``plot_h2_map`` / ``plot_ch4_map``
+layout (PyPSA pie charts at buses, choropleth, legends) but uses the current
+``n.plot`` API (``bus_size`` / ``line_width`` / …) and never mutates the
+cached network.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from .base import Html
+from .base import Html, apply_tech_map, resolve_tech_color, tech_color_map
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -35,6 +40,8 @@ try:
     import cartopy.crs as ccrs
     import geopandas as gpd
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from pypsa.plot import add_legend_circles, add_legend_lines, add_legend_patches
 
     _MAPS_AVAILABLE = True
 except ImportError as exc:  # pragma: no cover - exercised when [maps] not installed
@@ -42,6 +49,21 @@ except ImportError as exc:  # pragma: no cover - exercised when [maps] not insta
 
 #: Process-wide map of content fingerprint → first PNG path written this run.
 _MAP_PNG_BY_FINGERPRINT: dict[str, Path] = {}
+
+#: Europe extent used by the legacy plotting config.
+_MAP_BOUNDARIES = (-11.0, 30.0, 34.0, 71.0)
+
+#: PNG resolution — high enough for HTML, without the 2 MB base64 embeds.
+_MAP_DPI = 150
+_MAP_FIGSIZE = (15, 15)
+
+_AC_COLOR = "#9a0200"
+_DC_COLOR = "#11875d"
+_COST_BUS_SIZE_FACTOR = 35e9
+_COST_LINE_LOWER = 500.0
+_COST_LINE_UPPER = 1e4
+_COST_LINEWIDTH_FACTOR = 1e3
+_COST_THRESHOLD = 100e6  # EUR/a — techs below this leave the legend
 
 
 def clear_map_png_cache() -> None:
@@ -54,7 +76,7 @@ def clear_map_png_cache() -> None:
 # ---------------------------------------------------------------------------
 
 def costs(ctx, node: str, section) -> Html | None:
-    """Choropleth of nodal capital cost / GDP plus transmission capacity."""
+    """Choropleth of nodal capital cost / GDP plus technology pie charts."""
     return _build_maps_page(ctx, section, _render_costs_map, _fingerprint_costs, node)
 
 
@@ -66,7 +88,7 @@ def hydrogen(ctx, node: str, section) -> Html | None:
 
 
 def gas(ctx, node: str, section) -> Html | None:
-    """Gas pipelines."""
+    """Gas pipelines and supply sources."""
     return _build_maps_page(ctx, section, _render_gas_map, _fingerprint_gas, node)
 
 
@@ -118,7 +140,7 @@ def _build_maps_page(
         if fig is None:
             continue
 
-        fig.savefig(path, dpi=120, bbox_inches="tight")
+        fig.savefig(path, dpi=_MAP_DPI, bbox_inches="tight")
         plt.close(fig)
         if fp:
             _MAP_PNG_BY_FINGERPRINT[fp] = path
@@ -132,8 +154,6 @@ def _build_maps_page(
 
 def _highlight_node(ctx, node: str) -> str | None:
     """Region code to outline when maps are per-node; ``None`` for shared maps."""
-    # Shared builds still receive one node but must not bake a highlight into
-    # the single shared PNG.
     if getattr(ctx.config.output, "shared_maps", True):
         return None
     if hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node):
@@ -187,10 +207,10 @@ def _fingerprint_costs(network, regions, ctx, *, highlight: str | None) -> str |
     gdp = _gdp_bneur(ctx)
     if gdp is None:
         return None
-    # Hash the *plotted* choropleth (cost/GDP %), not raw nodal totals that
-    # may include unlocated residual mass invisible on the map.
-    costs = _nodal_costs_beur(network)
-    ratio = _cost_gdp_ratio(costs, gdp).round(2)  # map colour scale is coarse
+    costs = _tech_costs_by_bus(network)
+    if costs is None or costs.empty:
+        return None
+    ratio = _cost_gdp_ratio(costs.groupby(level=0).sum() / 1e9, gdp).round(2)
     line_caps = (
         network.lines["s_nom_opt"]
         if not network.lines.empty and "s_nom_opt" in network.lines.columns
@@ -200,10 +220,9 @@ def _fingerprint_costs(network, regions, ctx, *, highlight: str | None) -> str |
     if not network.links.empty and "p_nom_opt" in network.links.columns:
         dc = network.links.carrier.isin(["DC", "B2B"])
         link_caps = network.links.loc[dc, "p_nom_opt"]
-    # Capacities below the drawing threshold do not affect the PNG.
-    line_caps = line_caps[line_caps >= 500.0] if len(line_caps) else line_caps
-    link_caps = link_caps[link_caps >= 500.0] if len(link_caps) else link_caps
-    return _hash_parts("costs", ratio, line_caps, link_caps, highlight)
+    line_caps = line_caps[line_caps >= _COST_LINE_LOWER] if len(line_caps) else line_caps
+    link_caps = link_caps[link_caps >= _COST_LINE_LOWER] if len(link_caps) else link_caps
+    return _hash_parts("costs", costs.round(-4), ratio, line_caps, link_caps, highlight)
 
 
 def _fingerprint_hydrogen(network, regions, ctx, *, highlight: str | None) -> str | None:
@@ -212,14 +231,19 @@ def _fingerprint_hydrogen(network, regions, ctx, *, highlight: str | None) -> st
     h2 = network.links.carrier.str.contains("H2 pipeline", na=False)
     if not h2.any():
         return None
-    pipes = network.links.loc[h2, ["bus0", "bus1", "p_nom_opt"]]
+    pipes = network.links.loc[h2, ["bus0", "bus1", "p_nom_opt", "carrier"]]
     pipes = pipes.loc[pipes["p_nom_opt"] >= 750.0]
     storage = pd.Series(dtype=float)
     if not network.stores.empty:
         h2_store = network.stores.loc[network.stores.carrier == "H2"]
         if not h2_store.empty and "location" in h2_store.columns:
             storage = h2_store["e_nom_opt"].groupby(h2_store["location"]).sum()
-    return _hash_parts("hydrogen", pipes, storage, highlight)
+    elec = pd.Series(dtype=float)
+    if not network.links.empty:
+        mask = network.links.carrier == "H2 Electrolysis"
+        if mask.any():
+            elec = network.links.loc[mask, "p_nom_opt"]
+    return _hash_parts("hydrogen", pipes, storage, elec, highlight)
 
 
 def _fingerprint_gas(network, regions, ctx, *, highlight: str | None) -> str | None:
@@ -228,7 +252,7 @@ def _fingerprint_gas(network, regions, ctx, *, highlight: str | None) -> str | N
     gas = network.links.carrier.str.contains("gas pipeline", na=False)
     if not gas.any():
         return None
-    pipes = network.links.loc[gas, ["bus0", "bus1", "p_nom_opt"]]
+    pipes = network.links.loc[gas, ["bus0", "bus1", "p_nom_opt", "carrier"]]
     pipes = pipes.loc[pipes["p_nom_opt"] >= 1e3]
     return _hash_parts("gas", pipes, highlight)
 
@@ -323,38 +347,85 @@ def _gdp_bneur(ctx) -> pd.Series | None:
     if "gdp_bneur" not in regions.columns:
         logger.warning("regions.csv has no gdp_bneur column; skipping cost/GDP map")
         return None
-    gdp = pd.to_numeric(regions["gdp_bneur"], errors="coerce")
-    return gdp
+    return pd.to_numeric(regions["gdp_bneur"], errors="coerce")
 
 
 # ---------------------------------------------------------------------------
-# Plotting helpers
+# Network helpers
 # ---------------------------------------------------------------------------
 
-def _map_figure() -> tuple[Figure, object, ccrs.CRS]:
-    proj = ccrs.EqualEarth()
-    fig, ax = plt.subplots(figsize=(12, 12), subplot_kw={"projection": proj})
-    ax.set_extent([-12, 32, 35, 72], crs=ccrs.PlateCarree())
-    ax.coastlines(resolution="50m", linewidth=0.5)
-    ax.set_facecolor("white")
-    return fig, ax, proj
+def _map_opts() -> dict:
+    # auto_scale_branches=True → LineCollection (matplotlib linewidths).
+    # False draws PatchCollection polygons scaled by the projection
+    # area_factor, which blows up into map-covering blobs on EqualEarth.
+    return {
+        "boundaries": _MAP_BOUNDARIES,
+        "geomap": True,
+        "geomap_color": {"ocean": "white", "land": "white"},
+        "auto_scale_branches": True,
+    }
 
 
-def _nodal_costs_beur(network) -> pd.Series:
-    """Annualised capital cost per bus location, in bEUR/year."""
-    totals = pd.Series(0.0, dtype=float)
-    for comp in ("generators", "links", "stores", "storage_units"):
-        df = getattr(network, comp)
-        if df.empty:
-            continue
-        attr = "e_nom_opt" if comp == "stores" else "p_nom_opt"
-        if attr not in df.columns or "capital_cost" not in df.columns:
-            continue
-        if "location" not in df.columns:
-            continue
-        annual = df["capital_cost"].fillna(0) * df[attr].fillna(0)
-        totals = totals.add(annual.groupby(df["location"]).sum(), fill_value=0.0)
-    return totals / 1e9
+def _map_colors() -> dict[str, str]:
+    colors = tech_color_map()
+    # Aliases used by the legacy map legend / pie slices.
+    aliases = {
+        "distribution network": colors.get(
+            "electricity distribution grid", colors.get("distribution network", "#97ad8c")
+        ),
+        "thermal energy storage": colors.get(
+            "hot water storage", colors.get("thermal energy storage", "#eab88b")
+        ),
+        "H2 storage": colors.get("H2", "#bf13a0"),
+        "TES & H2 storage": colors.get("TES & H2 storage", "#870c71"),
+        "CCUS": colors.get("CCS", colors.get("CCUS", "#f29dae")),
+        "CCU": colors.get("CCS", colors.get("CCU", "#f29dae")),
+        "Fossil fuel powerplants": colors.get(
+            "Fossil fuels & powerplants", "#e05b09"
+        ),
+        "Fossil fuels & powerplants": colors.get(
+            "Fossil fuels & powerplants", "#e05b09"
+        ),
+        "boilers": colors.get("boilers", "#e05b09"),
+        "battery storage": colors.get("battery storage", colors.get("battery", "#ace37f")),
+        "fossil gas": "#9a0200",
+        "methanation": "#ffbacd",
+        "biogas": "#32bf84",
+        "H2 Electrolysis": "#ffbacd",
+    }
+    colors.update({k: v for k, v in aliases.items() if v})
+    return colors
+
+
+def _assign_locations(n) -> None:
+    """Fill component ``location`` from bus locations (in-place on a copy).
+
+    Solved networks often ship an empty-string ``location`` column on
+    generators/links; treating that as "already set" leaves every pie at the
+    unlocatable ``''`` bus.  Always overwrite from ``n.buses.location``.
+    """
+    if "location" not in n.buses.columns:
+        return
+    for c in n.iterate_components(n.one_port_components):
+        c.df["location"] = c.df.bus.map(n.buses.location)
+    for c in n.iterate_components(n.branch_components):
+        bus_cols = c.df.filter(regex="^bus")
+        locs = bus_cols.apply(lambda col: col.map(n.buses.location)).sort_index(axis=1)
+        c.df["location"] = locs.apply(
+            lambda row: next(
+                (loc for loc in row.dropna() if loc != "EU"),
+                "EU",
+            ),
+            axis=1,
+        )
+
+
+def _drop_non_ac_buses(n) -> None:
+    if n.buses.empty or "carrier" not in n.buses.columns:
+        return
+    drop = n.buses.index[n.buses.carrier != "AC"]
+    if len(drop):
+        n.buses.drop(drop, inplace=True)
 
 
 def _cost_gdp_ratio(costs: pd.Series, gdp: pd.Series) -> pd.Series:
@@ -369,44 +440,60 @@ def _cost_gdp_ratio(costs: pd.Series, gdp: pd.Series) -> pd.Series:
     return ratio
 
 
-def _draw_branch(
-    network,
-    ax,
-    *,
-    component: str,
-    mask: pd.Series,
-    color: str,
-    scale: float,
-    lower_threshold: float = 0.0,
-    transform=None,
-) -> None:
-    buses = network.buses
-    df = getattr(network, component)
-    if df.empty:
-        return
-    subset = df.loc[mask]
-    for _, row in subset.iterrows():
-        cap = row.get("s_nom_opt") if component == "lines" else row.get("p_nom_opt")
-        if cap is None or cap < lower_threshold:
+def _tech_costs_by_bus(network) -> pd.Series | None:
+    """Annualised capital cost MultiIndex (bus/location, tech) in EUR/year.
+
+    Locations are taken from ``n.buses.location`` via each component's bus
+    column — the on-disk ``location`` attribute is often an empty string.
+    """
+    n = network
+    bus_loc = n.buses["location"] if "location" in n.buses.columns else None
+    if bus_loc is None:
+        return None
+
+    frames: list[pd.DataFrame] = []
+    for comp in ("generators", "links", "stores", "storage_units"):
+        df = getattr(n, comp)
+        if df.empty:
             continue
-        try:
-            x0, y0 = buses.at[row.bus0, "x"], buses.at[row.bus0, "y"]
-            x1, y1 = buses.at[row.bus1, "x"], buses.at[row.bus1, "y"]
-        except KeyError:
+        attr = "e_nom_opt" if comp == "stores" else "p_nom_opt"
+        if attr not in df.columns or "capital_cost" not in df.columns:
             continue
-        lw = max(float(cap) / scale, 0.2)
-        ax.plot(
-            [x0, x1], [y0, y1],
-            color=color,
-            linewidth=lw,
-            solid_capstyle="round",
-            transform=transform or ccrs.PlateCarree(),
-            zorder=2,
+        if "carrier" not in df.columns:
+            continue
+        if comp == "links":
+            # Prefer a non-EU endpoint so cross-border links land on a real bus.
+            bus_cols = df.filter(regex="^bus")
+            locs = bus_cols.apply(lambda col: col.map(bus_loc))
+            location = locs.apply(
+                lambda row: next(
+                    (loc for loc in row.dropna() if loc != "EU"),
+                    "EU",
+                ),
+                axis=1,
+            )
+        else:
+            location = df.bus.map(bus_loc)
+        nice = apply_tech_map(df["carrier"].astype(str), "map")
+        nice = nice.replace({"Fossil fuels & powerplants": "Fossil fuel powerplants"})
+        annual = df["capital_cost"].fillna(0) * df[attr].fillna(0)
+        costs_c = (
+            annual.groupby([location, nice])
+            .sum()
+            .unstack(fill_value=0.0)
         )
+        frames.append(costs_c)
+    if not frames:
+        return None
+    costs = pd.concat(frames, axis=1)
+    costs = costs.T.groupby(costs.columns).sum().T
+    costs = costs.loc[:, (costs != 0.0).any(axis=0)]
+    if costs.empty:
+        return None
+    return costs.stack()
 
 
 def _outline_highlight(ax, regions: gpd.GeoDataFrame, highlight: str | None) -> None:
-    """Draw a thicker border around the selected region, if present."""
     if not highlight or highlight not in regions.index:
         return
     regions.loc[[highlight]].plot(
@@ -418,6 +505,10 @@ def _outline_highlight(ax, regions: gpd.GeoDataFrame, highlight: str | None) -> 
     )
 
 
+# ---------------------------------------------------------------------------
+# Renderers
+# ---------------------------------------------------------------------------
+
 def _render_costs_map(
     network, regions: gpd.GeoDataFrame, ctx, *, highlight: str | None = None
 ) -> Figure | None:
@@ -425,41 +516,156 @@ def _render_costs_map(
     if gdp is None:
         return None
 
-    costs = _nodal_costs_beur(network)
-    ratio = _cost_gdp_ratio(costs, gdp)
+    costs = _tech_costs_by_bus(network)
+    if costs is None or costs.empty:
+        logger.warning("no technology costs to plot on the map")
+        return None
+
+    n = network.copy()
+    _assign_locations(n)
+    _drop_non_ac_buses(n)
+
+    # Keep only costs whose location matches an AC bus.
+    to_drop = costs.index.levels[0].difference(n.buses.index)
+    if len(to_drop):
+        costs = costs.drop(to_drop, level=0, errors="ignore")
+    if costs.empty:
+        logger.warning("cost map: no costs left after aligning to AC buses")
+        return None
+    costs.index = pd.MultiIndex.from_tuples(costs.index.values)
+
+    combined = costs.groupby(level=0).sum() / 1e9
+    ratio = _cost_gdp_ratio(combined, gdp)
     if ratio.empty:
         logger.warning("no cost/GDP ratios to plot (missing or zero GDP entries)")
         return None
 
-    fig, ax, _ = _map_figure()
+    carriers = costs.groupby(level=1).sum()
+    carriers = carriers.where(carriers > _COST_THRESHOLD).dropna()
+    carrier_list = list(carriers.index)
+
+    # Transmission: keep AC lines + DC/B2B links only.
+    if not n.links.empty:
+        keep = n.links.carrier.isin(["DC", "B2B"])
+        n.links.drop(n.links.index[~keep], inplace=True)
+
+    line_widths = (
+        n.lines["s_nom_opt"] if not n.lines.empty else pd.Series(dtype=float)
+    )
+    link_widths = (
+        n.links["p_nom_opt"] if not n.links.empty else pd.Series(dtype=float)
+    )
+    line_widths = line_widths.clip(_COST_LINE_LOWER, _COST_LINE_UPPER).replace(
+        _COST_LINE_LOWER, 0.0
+    )
+    link_widths = link_widths.clip(_COST_LINE_LOWER, _COST_LINE_UPPER).replace(
+        _COST_LINE_LOWER, 0.0
+    )
+
+    colors = _map_colors()
+    tech_names = costs.index.get_level_values(1).unique()
+    bus_colors = pd.Series(
+        {t: resolve_tech_color(str(t), colors) for t in tech_names}
+    )
+    proj = ccrs.EqualEarth()
+    fig, ax = plt.subplots(figsize=_MAP_FIGSIZE, subplot_kw={"projection": proj})
+    ax.set_extent(_MAP_BOUNDARIES, crs=ccrs.PlateCarree())
+
     plot_regions = regions.copy()
     plot_regions["cost_pct_gdp"] = plot_regions.index.map(ratio)
     plot_regions.plot(
         ax=ax,
         column="cost_pct_gdp",
         cmap="Greys",
-        linewidth=0,
-        legend=True,
+        linewidths=0,
+        legend=False,
         vmin=0,
         vmax=6,
-        missing_kwds={"color": "lightgrey", "hatch": "///"},
-        legend_kwds={"label": "Cost [% GDP / year]", "shrink": 0.6},
+        zorder=1,
     )
 
-    line_mask = pd.Series(True, index=network.lines.index)
-    _draw_branch(
-        network, ax, component="lines", mask=line_mask,
-        color="#9a0200", scale=1e3, lower_threshold=500.0,
+    n.plot(
+        ax=ax,
+        bus_size=costs / _COST_BUS_SIZE_FACTOR,
+        bus_color=bus_colors,
+        line_color=_AC_COLOR,
+        link_color=_DC_COLOR,
+        line_width=line_widths / _COST_LINEWIDTH_FACTOR,
+        link_width=link_widths / _COST_LINEWIDTH_FACTOR,
+        **_map_opts(),
     )
-    if not network.links.empty:
-        dc_mask = network.links.carrier.isin(["DC", "B2B"])
-        _draw_branch(
-            network, ax, component="links", mask=dc_mask,
-            color="#11875d", scale=1e3, lower_threshold=500.0,
-        )
 
     _outline_highlight(ax, regions, highlight)
-    ax.set_title("System cost map")
+
+    # Size legends
+    sizes = [20, 10, 5]
+    labels = [f"{s} bEUR/year" for s in sizes]
+    legend_sizes = [s / _COST_BUS_SIZE_FACTOR * 1e9 for s in sizes]
+    add_legend_circles(
+        ax,
+        legend_sizes,
+        labels,
+        srid=n.srid,
+        patch_kw={"facecolor": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0.001, 0.98),
+            "labelspacing": 1,
+            "frameon": False,
+            "handletextpad": 1,
+            "fontsize": 15,
+            "title": "Annualised Investment Costs",
+        },
+    )
+    line_sizes = [10, 5, 1]
+    line_labels = [f"{s} GW" for s in line_sizes]
+    scale = 1e3 / _COST_LINEWIDTH_FACTOR
+    add_legend_lines(
+        ax,
+        [s * scale for s in line_sizes],
+        line_labels,
+        patch_kw={"color": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0.45, 0.98),
+            "frameon": False,
+            "labelspacing": 1,
+            "handletextpad": 1,
+            "fontsize": 15,
+            "title": "total grid capacity",
+        },
+    )
+
+    sm = plt.cm.ScalarMappable(cmap="Greys", norm=plt.Normalize(vmin=0, vmax=6))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, orientation="vertical", shrink=0.5, pad=0.02)
+    cbar.set_label(r"Cost [% GDP$_{2023}$ / year]", fontsize=15)
+    cbar.ax.tick_params(labelsize=15)
+
+    legend_colors = [resolve_tech_color(c, colors) for c in carrier_list] + [
+        _AC_COLOR,
+        _DC_COLOR,
+    ]
+    legend_labels = carrier_list + ["AC line", "DC line"]
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor=color,
+            markersize=15,
+        )
+        for color in legend_colors
+    ]
+    fig.legend(
+        handles,
+        legend_labels,
+        bbox_to_anchor=(0.9, 0.25),
+        ncol=4,
+        frameon=False,
+        fontsize=15,
+    )
     fig.tight_layout()
     return fig
 
@@ -476,46 +682,193 @@ def _render_hydrogen_map(
         logger.warning("hydrogen map: no H2 pipeline links in network")
         return None
 
-    fig, ax, _ = _map_figure()
-
-    if not network.stores.empty:
-        h2_store = network.stores.loc[network.stores.carrier == "H2"]
-        if not h2_store.empty and "location" in h2_store.columns:
-            storage_twh = (
-                h2_store["e_nom_opt"].groupby(h2_store["location"]).sum() / 1e6
-            )
-            plot_regions = regions.copy()
-            plot_regions["H2_TWh"] = plot_regions.index.map(storage_twh)
-            plot_regions.plot(
-                ax=ax,
-                column="H2_TWh",
-                cmap="Blues",
-                linewidth=0,
-                legend=True,
-                vmin=0,
-                vmax=6,
-                legend_kwds={"label": "H2 storage [TWh]", "shrink": 0.6},
-            )
-
-    from types import SimpleNamespace
-
     from .maps_pipes import group_pipes
 
-    h2_df = network.links.loc[h2_links]
-    grouped = group_pipes(h2_df)
-    pipe_view = SimpleNamespace(buses=network.buses, links=grouped)
-    _draw_branch(
-        pipe_view,
-        ax,
-        component="links",
-        mask=pd.Series(True, index=grouped.index),
-        color="#11875d",
-        scale=7e3,
-        lower_threshold=750.0,
+    n = network.copy()
+    _assign_locations(n)
+
+    bus_size_factor = 1e5
+    linewidth_factor = 7e3
+    line_lower_threshold = 750.0
+
+    # Storage choropleth (TWh)
+    plot_regions = regions.copy()
+    if not n.stores.empty:
+        h2_store = n.stores.loc[n.stores.carrier == "H2"]
+        if not h2_store.empty:
+            bus_loc = (
+                h2_store["location"]
+                if "location" in h2_store.columns
+                else h2_store.bus.map(n.buses.location)
+            )
+            storage_twh = h2_store["e_nom_opt"].groupby(bus_loc).sum() / 1e6
+            storage_twh = storage_twh.where(storage_twh > 0.1)
+            plot_regions["H2_TWh"] = plot_regions.index.map(storage_twh)
+
+    _drop_non_ac_buses(n)
+
+    # Electrolysis bus sizes
+    elec = n.links.index[n.links.carrier == "H2 Electrolysis"]
+    bus_sizes = pd.Series(dtype=float)
+    if len(elec):
+        bus_sizes = (
+            n.links.loc[elec, "p_nom_opt"]
+            .groupby([n.links.loc[elec, "bus0"], n.links.loc[elec, "carrier"]])
+            .sum()
+            / bus_size_factor
+        )
+        bus_sizes = bus_sizes.rename(
+            index=lambda x: str(x).replace(" H2", ""), level=0
+        )
+
+    # Keep only H2 pipelines
+    n.links.drop(n.links.index[~n.links.carrier.str.contains("H2 pipeline")], inplace=True)
+
+    h2_new = n.links[n.links.carrier == "H2 pipeline"]
+    h2_retro = n.links[n.links.carrier == "H2 pipeline retrofitted"]
+
+    if not h2_new.empty:
+        # Group parallel / multi-period pipes when present.
+        if h2_new.index.astype(str).str.contains(r"-2|-3|-4").any() or (
+            h2_new.groupby(["bus0", "bus1"]).size() > 1
+        ).any():
+            h2_new = group_pipes(h2_new)
+
+    if not h2_retro.empty:
+        positive_order = h2_retro.bus0 < h2_retro.bus1
+        h2_retro_p = h2_retro[positive_order]
+        h2_retro_n = h2_retro[~positive_order].rename(
+            columns={"bus0": "bus1", "bus1": "bus0"}
+        )
+        h2_retro = pd.concat([h2_retro_p, h2_retro_n])
+        h2_retro["index_orig"] = h2_retro.index
+        h2_retro.index = h2_retro.apply(
+            lambda x: (
+                f"H2 pipeline {str(x.bus0).replace(' H2', '')}"
+                f" -> {str(x.bus1).replace(' H2', '')}"
+            ),
+            axis=1,
+        )
+        if not h2_new.empty:
+            retro_w_new = h2_retro.index.intersection(h2_new.index)
+            retro_wo_new = h2_retro.index.difference(h2_new.index)
+            parts = [h2_new]
+            if len(retro_w_new):
+                parts.append(h2_retro.loc[retro_w_new])
+            if len(retro_wo_new):
+                wo = h2_retro.loc[retro_wo_new].copy()
+                wo.index = wo["index_orig"]
+                parts.append(wo)
+            h2_total = pd.concat(parts).p_nom_opt.groupby(level=0).sum()
+        else:
+            h2_total = h2_retro.p_nom_opt.groupby(level=0).sum()
+    else:
+        h2_total = h2_new.p_nom_opt if not h2_new.empty else pd.Series(dtype=float)
+
+    # Collapse duplicate link names after grouping.
+    n.links.rename(index=lambda x: str(x).split("-2")[0], inplace=True)
+    n.links = n.links.groupby(level=0).first()
+    link_widths_total = h2_total.reindex(n.links.index).fillna(0.0) / linewidth_factor
+    link_widths_total[n.links.p_nom_opt < line_lower_threshold] = 0.0
+
+    retro = n.links.p_nom_opt.where(
+        n.links.carrier == "H2 pipeline retrofitted", other=0.0
+    )
+    link_widths_retro = retro / linewidth_factor
+    link_widths_retro[n.links.p_nom_opt < line_lower_threshold] = 0.0
+
+    n.links.bus0 = n.links.bus0.str.replace(" H2", "", regex=False)
+    n.links.bus1 = n.links.bus1.str.replace(" H2", "", regex=False)
+
+    color_h2_pipe = "#c5c9c7"
+    color_retrofit = "#11875d"
+    bus_colors = {"H2 Electrolysis": "#ffbacd"}
+
+    proj = ccrs.EqualEarth()
+    fig, ax = plt.subplots(figsize=_MAP_FIGSIZE, subplot_kw={"projection": proj})
+
+    if "H2_TWh" in plot_regions.columns:
+        plot_regions.plot(
+            ax=ax,
+            column="H2_TWh",
+            cmap="Blues",
+            linewidths=0,
+            legend=True,
+            vmax=6,
+            vmin=0,
+            legend_kwds={
+                "label": "Hydrogen Storage [TWh]",
+                "shrink": 0.7,
+                "extend": "max",
+            },
+            zorder=1,
+        )
+    else:
+        regions.plot(ax=ax, facecolor="none", edgecolor="lightgrey", linewidth=0.3)
+
+    n.plot(
+        ax=ax,
+        bus_size=bus_sizes if len(bus_sizes) else 0.0,
+        bus_color=bus_colors,
+        link_color=color_h2_pipe,
+        link_width=link_widths_total,
+        branch_components=["Link"],
+        **_map_opts(),
+    )
+    n.plot(
+        ax=ax,
+        bus_size=0.0,
+        link_color=color_retrofit,
+        link_width=link_widths_retro,
+        branch_components=["Link"],
+        **_map_opts(),
     )
 
     _outline_highlight(ax, regions, highlight)
-    ax.set_title("Hydrogen network")
+
+    sizes = [50, 10]
+    labels = [f"{s} GW" for s in sizes]
+    add_legend_circles(
+        ax,
+        [s / bus_size_factor * 1e3 for s in sizes],
+        labels,
+        srid=n.srid,
+        patch_kw={"facecolor": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0.05, 1),
+            "labelspacing": 1.2,
+            "frameon": False,
+            "fontsize": 15,
+            "title": "Electrolyser capacity",
+        },
+    )
+    line_sizes = [30, 10]
+    scale = 1e3 / linewidth_factor
+    add_legend_lines(
+        ax,
+        [s * scale for s in line_sizes],
+        [f"{s} GW" for s in line_sizes],
+        patch_kw={"color": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0.05, 0.8),
+            "frameon": False,
+            "fontsize": 15,
+            "title": "H2 pipeline capacity",
+        },
+    )
+    add_legend_patches(
+        ax,
+        ["#ffbacd", color_h2_pipe, color_retrofit],
+        ["H2 Electrolysis", "H2 pipeline (total)", "H2 pipeline (repurposed)"],
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0.05, 0.6),
+            "frameon": False,
+            "fontsize": 15,
+        },
+    )
     fig.tight_layout()
     return fig
 
@@ -532,46 +885,199 @@ def _render_gas_map(
         logger.warning("gas map: no gas pipeline links in network")
         return None
 
-    fig, ax, _ = _map_figure()
+    n = network.copy()
+    _assign_locations(n)
 
-    # Reposition EU gas for display only — never mutate the cached network.
-    buses = network.buses
-    x = buses["x"].copy()
-    y = buses["y"].copy()
-    if "EU gas" in buses.index:
-        x.loc["EU gas"] = -50.0
-        y.loc["EU gas"] = 46.0
+    bus_size_factor = 10e8
+    linewidth_factor = 0.5e4
+    line_lower_threshold = 1e3
+    weights = n.snapshot_weightings.generators
 
-    def _xy(bus_name: str) -> tuple[float, float] | None:
-        for candidate in (bus_name, str(bus_name).replace(" gas", "")):
-            if candidate in x.index:
-                return float(x.at[candidate]), float(y.at[candidate])
-        return None
+    def _gen_supply(carrier: str, label: str) -> pd.Series:
+        idx = n.generators.index[n.generators.carrier == carrier]
+        if not len(idx) or n.generators_t.p.empty:
+            return pd.Series(dtype=float)
+        series = (
+            n.generators_t.p.loc[:, idx]
+            .mul(weights, axis=0)
+            .sum()
+            .groupby(n.generators.loc[idx, "bus"])
+            .sum()
+            / bus_size_factor
+        )
+        series = series.rename(
+            index=lambda x: str(x).replace(f" {carrier}", "").replace(" gas", "")
+        )
+        series.index = pd.MultiIndex.from_product([series.index, [label]])
+        return series
 
-    subset = network.links.loc[gas_links]
-    for _, row in subset.iterrows():
-        cap = row.get("p_nom_opt")
-        if cap is None or cap < 1e3:
-            continue
-        start = _xy(row.bus0)
-        end = _xy(row.bus1)
-        if start is None or end is None:
-            continue
-        x0, y0 = start
-        x1, y1 = end
-        lw = max(float(cap) / 5e3, 0.2)
-        ax.plot(
-            [x0, x1], [y0, y1],
-            color="#c14a09",
-            linewidth=lw,
-            solid_capstyle="round",
-            transform=ccrs.PlateCarree(),
-            zorder=2,
+    # Supply pies must be computed before dropping non-AC buses.
+    fossil_gas = _gen_supply("gas", "fossil gas")
+    biogas = _gen_supply("biogas", "biogas")
+
+    methanation = pd.Series(dtype=float)
+    sab = n.links.query("carrier == 'Sabatier'").index
+    if len(sab) and not n.links_t.p1.empty:
+        methanation = (
+            abs(n.links_t.p1.loc[:, sab].mul(weights, axis=0))
+            .sum()
+            .groupby(n.links.loc[sab, "bus1"])
+            .sum()
+            / bus_size_factor
+        )
+        methanation = methanation.rename(index=lambda x: str(x).replace(" gas", ""))
+        methanation.index = pd.MultiIndex.from_product(
+            [methanation.index, ["methanation"]]
         )
 
-    regions.plot(ax=ax, facecolor="none", edgecolor="lightgrey", linewidth=0.3)
+    bus_sizes = pd.concat([s for s in (fossil_gas, methanation, biogas) if len(s)])
+    if not bus_sizes.empty:
+        bus_sizes = bus_sizes.sort_index()
+
+    _drop_non_ac_buses(n)
+    if not bus_sizes.empty:
+        keep = bus_sizes.index.get_level_values(0).isin(n.buses.index)
+        bus_sizes = bus_sizes.loc[keep]
+
+    n.links.drop(
+        n.links.index[~n.links.carrier.str.contains("gas pipeline")], inplace=True
+    )
+
+    link_widths_rem = n.links.p_nom_opt / linewidth_factor
+    link_widths_rem[n.links.p_nom_opt < line_lower_threshold] = 0.0
+    link_widths_orig = n.links.p_nom / linewidth_factor
+    link_widths_orig[n.links.p_nom < line_lower_threshold] = 0.0
+
+    if not n.links_t.p0.empty:
+        max_usage = n.links_t.p0[n.links.index].abs().max(axis=0)
+    else:
+        max_usage = n.links.p_nom_opt * 0.0
+    link_widths_used = max_usage / linewidth_factor
+    link_widths_used[max_usage < line_lower_threshold] = 0.0
+
+    pipe_colors = {
+        "gas pipeline": "#ffb07c",
+        "gas pipeline new": "#c14a09",
+        "gas pipeline retrofitted to H2": "#11875d",
+        "gas pipeline (available)": "#fbeeac",
+    }
+    link_color_used = n.links.carrier.map(pipe_colors).fillna("#c14a09")
+
+    n.links.bus0 = n.links.bus0.str.replace(" gas", "", regex=False)
+    n.links.bus1 = n.links.bus1.str.replace(" gas", "", regex=False)
+
+    # Optional EU gas node for pipes that terminate there (display only).
+    if (n.links.bus0 == "EU gas").any() or (n.links.bus1 == "EU gas").any():
+        if "EU gas" not in n.buses.index:
+            n.buses.loc["EU gas", "x"] = -5.5
+            n.buses.loc["EU gas", "y"] = 46.0
+            n.buses.loc["EU gas", "carrier"] = "AC"
+        else:
+            n.buses.loc["EU gas", "x"] = -5.5
+            n.buses.loc["EU gas", "y"] = 46.0
+
+    bus_colors = pd.Series(
+        {
+            "fossil gas": "#9a0200",
+            "methanation": "#ffbacd",
+            "biogas": "#32bf84",
+        }
+    )
+
+    proj = ccrs.EqualEarth()
+    fig, ax = plt.subplots(figsize=_MAP_FIGSIZE, subplot_kw={"projection": proj})
+    ax.set_extent(_MAP_BOUNDARIES, crs=ccrs.PlateCarree())
+    regions.plot(
+        ax=ax, facecolor="none", edgecolor="lightgrey", linewidth=0.3, zorder=1
+    )
+
+    plot_kwargs = {
+        "ax": ax,
+        "branch_components": ["Link"],
+        **_map_opts(),
+    }
+    n.plot(
+        bus_size=bus_sizes if len(bus_sizes) else 0.0,
+        bus_color=bus_colors,
+        link_color=pipe_colors["gas pipeline retrofitted to H2"],
+        link_width=link_widths_orig,
+        **plot_kwargs,
+    )
+    n.plot(
+        bus_size=0.0,
+        link_color=pipe_colors["gas pipeline (available)"],
+        link_width=link_widths_rem,
+        **plot_kwargs,
+    )
+    n.plot(
+        bus_size=0.0,
+        link_color=link_color_used,
+        link_width=link_widths_used,
+        **plot_kwargs,
+    )
+
     _outline_highlight(ax, regions, highlight)
-    ax.set_title("Gas network")
+
+    sizes = [100, 10]
+    labels = [f"{s} TWh" for s in sizes]
+    add_legend_circles(
+        ax,
+        [s / bus_size_factor * 1e6 for s in sizes],
+        labels,
+        srid=n.srid,
+        patch_kw={"facecolor": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0, 0.8),
+            "labelspacing": 0.8,
+            "frameon": False,
+            "handletextpad": 1,
+            "fontsize": 15,
+            "title": "gas sources supply",
+        },
+    )
+    line_sizes = [50, 10]
+    scale = 1e3 / linewidth_factor
+    add_legend_lines(
+        ax,
+        [s * scale for s in line_sizes],
+        [f"{s} GW" for s in line_sizes],
+        patch_kw={"color": "black"},
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0, 0.6),
+            "frameon": False,
+            "labelspacing": 0.8,
+            "fontsize": 15,
+            "handletextpad": 1,
+            "title": "gas pipeline capacity",
+        },
+    )
+    add_legend_patches(
+        ax,
+        [
+            bus_colors["fossil gas"],
+            bus_colors["methanation"],
+            bus_colors["biogas"],
+            pipe_colors["gas pipeline"],
+            pipe_colors["gas pipeline new"],
+            pipe_colors["gas pipeline (available)"],
+        ],
+        [
+            "fossil gas",
+            "methanation",
+            "biogas",
+            "gas pipeline",
+            "gas pipeline new",
+            "gas pipeline (available)",
+        ],
+        legend_kw={
+            "loc": "upper left",
+            "bbox_to_anchor": (0, 0.4),
+            "frameon": False,
+            "fontsize": 13,
+        },
+    )
     fig.tight_layout()
     return fig
 

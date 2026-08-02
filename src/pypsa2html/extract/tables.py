@@ -387,6 +387,52 @@ def cost_table(
     return table.sort_index()
 
 
+def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
+    """Electric nuclear capacity [MW] per horizon, attributed by plant bus.
+
+    ``nodal_capacities.csv`` parks every nuclear Link under location ``EU``
+    (the uranium bus).  The legacy reporter instead took
+    ``p_nom_opt * efficiency`` on links whose *delivery* bus sits in the
+    selected node.  Replicate that here so country panels are not blank.
+    """
+    years = [str(y) for y in ctx.year_columns]
+    out = pd.Series(0.0, index=years, dtype=float)
+    if not hasattr(ctx, "networks") or not hasattr(ctx, "horizons"):
+        return out
+
+    aggregate = hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node)
+    for horizon in ctx.horizons:
+        try:
+            network = ctx.networks[horizon]
+        except Exception:  # noqa: BLE001 - missing / stub networks are fine
+            continue
+        links = getattr(network, "links", None)
+        if links is None or getattr(links, "empty", True):
+            continue
+        if "carrier" not in links.columns or "p_nom_opt" not in links.columns:
+            continue
+        nuc = links.loc[links["carrier"].astype(str) == "nuclear"]
+        if nuc.empty:
+            continue
+        if not aggregate:
+            buses = getattr(network, "buses", None)
+            if buses is not None and "location" in buses.columns:
+                dest = nuc["bus1"].map(buses["location"])
+            else:
+                dest = nuc["bus1"].astype(str)
+            nuc = nuc.loc[dest.astype(str) == str(node)]
+        if nuc.empty:
+            continue
+        eff = (
+            pd.to_numeric(nuc["efficiency"], errors="coerce").fillna(1.0)
+            if "efficiency" in nuc.columns
+            else 1.0
+        )
+        p_nom = pd.to_numeric(nuc["p_nom_opt"], errors="coerce").fillna(0.0)
+        out[str(horizon)] = float((p_nom * eff).sum())
+    return out
+
+
 def capacity_table(
     ctx: BuildContext, node: str, kind: CapacityKind = "power"
 ) -> pd.DataFrame | None:
@@ -395,33 +441,44 @@ def capacity_table(
     By default (``features.capacity_filter: bus_carrier``) only carriers that
     attach to electricity / heat / H2 service buses — or energy-storage Store
     buses — are kept.  See :mod:`pypsa2html.extract.capacity_filter`.
+
+    Nuclear is re-attributed from the solved network (delivery bus ×
+    efficiency) because the nodal CSV stores it under the EU uranium bus.
     """
     raw = _load_nodal(ctx, "csvs/nodal_capacities.csv")
     if raw is None:
         return None
 
     df = _filter_location(raw, ctx, node)
-    if df.empty:
+    if df.empty and kind == "storage":
         logger.warning("capacity_table: no rows for node %s", node)
         return None
 
     if kind == "storage":
+        if df.empty:
+            return None
         if "component" in df.columns:
             df = df.loc[df["component"].astype(str) == "Store"]
         else:
             logger.warning("capacity_table: no component column for storage filter")
             return None
     elif kind == "power":
-        if _transmission_enabled(ctx) and "carrier" in df.columns:
-            df = df.loc[~df["carrier"].astype(str).isin(_TRANSMISSION_CARRIERS)]
+        # Keep AC/DC so ``normalize_carrier`` folds them into
+        # "transmission lines" for the faceted capacity chart.  Cost tables
+        # still drop them when ``features.transmission_costs`` is on.
         # Exclude pure Store energy capacities from the power chart
-        if "component" in df.columns:
+        if not df.empty and "component" in df.columns:
             df = df.loc[df["component"].astype(str) != "Store"]
+        # Drop CSV nuclear — replaced below from the network.
+        if not df.empty and "carrier" in df.columns:
+            df = df.loc[df["carrier"].astype(str) != "nuclear"]
 
-    df = _apply_capacity_filter(df, ctx, kind)
+    df = _apply_capacity_filter(df, ctx, kind) if not df.empty else df
 
-    years_in_csv = [c for c in df.columns if str(c).isdigit()]
-    if not years_in_csv:
+    years_in_csv = (
+        [c for c in df.columns if str(c).isdigit()] if not df.empty else []
+    )
+    if not years_in_csv and kind == "storage":
         return None
 
     if kind == "storage":
@@ -439,13 +496,24 @@ def capacity_table(
         table = work.groupby("tech", sort=False)[years_in_csv].sum()
         table = table.replace([float("inf"), float("-inf")], float("nan")).dropna(how="any")
     else:
-        table = _group_techs(df, years_in_csv, "capacities")
-
-    if table.empty:
-        return None
+        if df.empty or not years_in_csv:
+            table = pd.DataFrame(columns=list(ctx.year_columns))
+        else:
+            table = _group_techs(df, years_in_csv, "capacities")
 
     table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
+
+    if kind == "power":
+        nuclear = _nuclear_electric_mw(ctx, node)
+        if nuclear.any():
+            table = table.copy()
+            if "nuclear" in table.index:
+                table = table.drop(index="nuclear")
+            table.loc["nuclear"] = nuclear.reindex(table.columns).fillna(0.0)
+
     table = table.loc[~(table == 0).all(axis=1)]
+    if table.empty:
+        return None
 
     if kind == "power" and ctx.config.model.base_year is not None:
         table = _merge_base_year(

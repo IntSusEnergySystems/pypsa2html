@@ -70,8 +70,10 @@ pages:
   - id: capacities
     title: Capacities
     sections:
-      - {id: power_capacities,       title: Capacities,                      builder: results.capacities,         unit: GW}
-      - {id: storage_capacities,     title: Storage capacities,              builder: results.storage_capacities, unit: GWh}
+      - {id: power_capacities,          title: Capacities,                         builder: results.capacities,                unit: GW}
+      - {id: power_capacities_by_tech,   title: Capacities by technology,           builder: results.capacities_by_tech,         unit: GW}
+      - {id: storage_capacities,         title: Storage capacities,                 builder: results.storage_capacities,        unit: GWh}
+      - {id: storage_capacities_by_tech, title: Storage capacities by technology,   builder: results.storage_capacities_by_tech, unit: GWh}
 
   - id: dispatch
     title: Dispatch
