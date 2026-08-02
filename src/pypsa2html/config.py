@@ -90,6 +90,10 @@ class ModelConfig:
     base_year_source: str | None = None
     #: Absolute threshold below which a flow is dropped, in TWh (or Mt for CO2).
     flow_threshold: float = 0.1
+    #: How many solved networks to keep in RAM.  ``None`` = one per horizon
+    #: (avoids thrashing the LRU during dispatch/maps/overview).  Set a small
+    #: positive int only when RAM is tight.
+    network_cache_size: int | None = None
     dispatch_windows: DispatchWindowsConfig = field(default_factory=DispatchWindowsConfig)
 
     def network_path(self, results_dir: Path | str, horizon: int) -> Path:

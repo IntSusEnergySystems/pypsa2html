@@ -346,11 +346,26 @@ Progress tracker (✅ done / 🔧 residual polish / ☐ open):
    (`map_{section}_{horizon}.png`) and referenced with `<img src=…>`.
 
 **Validation (2026-08-02):** rebuilt all three pypsa-wal scenarios (221 pages,
-832 s). Against the previous HTML tree: all 36 map PNGs byte-identical; all
-220 HTML bodies identical after stripping generation timestamps, colour
-strings, and nav chrome. The only surface diffs were footer clocks and, on
-18 `scen_demande_haute` cost/capacity pages, a fuller page-nav list in the
-new build (previous nav only listed Capacities/Costs).
+832 s before the network-cache fix below). Against the previous HTML tree: all
+36 map PNGs byte-identical; all 220 HTML bodies identical after stripping
+generation timestamps, colour strings, and nav chrome. The only surface diffs
+were footer clocks and, on 18 `scen_demande_haute` cost/capacity pages, a
+fuller page-nav list in the new build (previous nav only listed
+Capacities/Costs).
+
+**Performance (2026-08-02):** the dominant cost was reloading solved `.nc`
+files. With `NetworkCache` LRU size 2 and 4 horizons, a single-scenario build
+performed ~400 disk loads (~0.8 s each). Fixes:
+
+- default cache size = number of horizons (`model.network_cache_size: null`);
+- process-wide path cache so overview / multi-scenario builds share loads;
+- shared `BuildContext` pool across scenarios so overview does not re-extract
+  every node three times.
+
+pypsa-wal full site: **~832 s → ~144 s** (12 network loads). Remaining time is
+mostly plotly serialisation (dispatch pages) and map rendering — further wins
+would be downsampling dispatch traces or caching rendered map PNGs across
+scenarios when networks are identical.
 
 ### Structural
 

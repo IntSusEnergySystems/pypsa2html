@@ -140,11 +140,18 @@ def build_scenario(
     manifest: Manifest | None = None,
     ctx: BuildContext | None = None,
     report: BuildReport | None = None,
+    context_pool: dict[str, BuildContext] | None = None,
 ) -> BuildReport:
     """Build every page for every node of one scenario."""
     started = time.perf_counter()
     report = report or BuildReport()
+    if ctx is None and context_pool is not None and scenario_name in context_pool:
+        ctx = context_pool[scenario_name]
     ctx = ctx or build_context(config, scenario_name)
+    if context_pool is not None:
+        context_pool.setdefault(scenario_name, ctx)
+        # Shared across scenario_contexts() so overview reuses extractions.
+        ctx._files[("_context_pool",)] = context_pool
     manifest = manifest or load_manifest(
         enable=config.plots, include_pages=config.output.pages
     )
@@ -208,33 +215,48 @@ def build_site(
     manifest: Manifest | None = None,
 ) -> BuildReport:
     """Build the whole site: every scenario, plus ``index.html``."""
+    from .networks import clear_path_cache
+
     report = BuildReport()
     manifest = manifest or load_manifest(
         enable=config.plots, include_pages=config.output.pages
     )
     names = scenarios or config.scenario_names
+    # One BuildContext per scenario for the whole site: overview pages and
+    # later scenario builds share extractions and loaded networks.
+    context_pool: dict[str, BuildContext] = {}
 
-    for name in names:
-        logger.info("=== scenario %s ===", name)
-        build_scenario(config, name, manifest=manifest, report=report)
+    try:
+        for name in names:
+            logger.info("=== scenario %s ===", name)
+            build_scenario(
+                config,
+                name,
+                manifest=manifest,
+                report=report,
+                context_pool=context_pool,
+            )
 
-    if config.output.write_index and report.written:
-        landing = _landing_filename(config, manifest)
-        landing_scenario = config.landing_scenario.name
-        landing_dir = config.output_dir(landing_scenario)
+        if config.output.write_index and report.written:
+            landing = _landing_filename(config, manifest)
+            landing_scenario = config.landing_scenario.name
+            landing_dir = config.output_dir(landing_scenario)
 
-        index = write_index(landing_dir, landing)
-        report.written.append(index)
-        logger.info("landing page: %s -> %s", index, landing)
+            index = write_index(landing_dir, landing)
+            report.written.append(index)
+            logger.info("landing page: %s -> %s", index, landing)
 
-        # With a per-scenario layout each scenario's pages live in its own
-        # results tree, so add one index at their common root too.
-        if config.output_is_per_scenario:
-            root = config.common_output_root()
-            rel = os.path.relpath(landing_dir / landing, root).replace(os.sep, "/")
-            root_index = write_index(root, rel)
-            report.written.append(root_index)
-            logger.info("site entry point: %s -> %s", root_index, rel)
+            # With a per-scenario layout each scenario's pages live in its own
+            # results tree, so add one index at their common root too.
+            if config.output_is_per_scenario:
+                root = config.common_output_root()
+                rel = os.path.relpath(landing_dir / landing, root).replace(os.sep, "/")
+                root_index = write_index(root, rel)
+                report.written.append(root_index)
+                logger.info("site entry point: %s -> %s", root_index, rel)
+    finally:
+        # Free the process-wide .nc cache once the site is written.
+        clear_path_cache()
 
     logger.info(report.summary())
     return report

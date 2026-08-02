@@ -38,6 +38,10 @@ def scenario_contexts(ctx) -> dict[str, BuildContext]:
 
     Returns a mapping of scenario *label* -> context.  Scenarios whose
     ``results_dir`` is absent are skipped with a warning.
+
+    When the site build has installed a shared context pool on ``ctx``
+    (see :func:`pypsa2html.build.build_site`), contexts are reused across
+    scenarios so overview pages do not re-extract every network three times.
     """
     key = ("scenario_contexts",)
     cached = ctx._files.get(key)
@@ -51,6 +55,8 @@ def scenario_contexts(ctx) -> dict[str, BuildContext]:
         ctx._files[key] = {}
         return {}
 
+    pool = ctx._files.get(("_context_pool",))
+
     contexts: dict[str, BuildContext] = {}
     for sc in scenario_list:
         results_dir = config.results_dir(sc.name)
@@ -62,7 +68,14 @@ def scenario_contexts(ctx) -> dict[str, BuildContext]:
             )
             continue
         try:
-            contexts[sc.label] = build_context(config, sc.name)
+            if isinstance(pool, dict):
+                if sc.name not in pool:
+                    other = build_context(config, sc.name)
+                    other._files[("_context_pool",)] = pool
+                    pool[sc.name] = other
+                contexts[sc.label] = pool[sc.name]
+            else:
+                contexts[sc.label] = build_context(config, sc.name)
         except FileNotFoundError as exc:
             logger.warning("scenario %s: %s", sc.label, exc)
             continue

@@ -16,13 +16,51 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+#: Process-wide cache keyed by resolved ``.nc`` path.  Lets overview pages and
+#: sequential scenario builds reuse networks that another :class:`NetworkCache`
+#: already loaded.  Cleared at the end of :func:`pypsa2html.build.build_site`.
+_PATH_CACHE: OrderedDict[str, object] = OrderedDict()
+_PATH_CACHE_MAX = 24  # comfortably fits 3 scenarios × 4 horizons
+
+
+def clear_path_cache() -> None:
+    """Drop every network held in the process-wide path cache."""
+    _PATH_CACHE.clear()
+
+
+def _load_network(path: Path):
+    """Load ``path``, reusing a process-wide cache when possible."""
+    key = str(path.resolve())
+    cached = _PATH_CACHE.get(key)
+    if cached is not None:
+        _PATH_CACHE.move_to_end(key)
+        return cached
+
+    import pypsa  # imported here to keep `import pypsa2html` cheap
+
+    logger.info("loading %s", path)
+    network = pypsa.Network(str(path))
+    _PATH_CACHE[key] = network
+    while len(_PATH_CACHE) > _PATH_CACHE_MAX:
+        _PATH_CACHE.popitem(last=False)
+    return network
+
 
 class NetworkCache:
-    """``horizon -> pypsa.Network``, loaded on demand, LRU-bounded."""
+    """``horizon -> pypsa.Network``, loaded on demand, LRU-bounded.
 
-    def __init__(self, paths: dict[int, Path], maxsize: int = 2):
+    Default ``maxsize`` is ``None`` (keep every horizon).  An LRU of 2 with
+    four planning horizons reloads each ``.nc`` dozens of times per build —
+    each load is ~1 s for a Wallonia-sized network.
+    """
+
+    def __init__(self, paths: dict[int, Path], maxsize: int | None = None):
         self.paths = dict(paths)
-        self.maxsize = max(1, maxsize)
+        # None / non-positive → hold every horizon present on disk.
+        if maxsize is None or maxsize <= 0:
+            self.maxsize = max(1, len(self.paths))
+        else:
+            self.maxsize = max(1, int(maxsize))
         self._cache: OrderedDict[int, object] = OrderedDict()
 
     @property
@@ -45,10 +83,7 @@ class NetworkCache:
         if not path.exists():
             raise FileNotFoundError(f"solved network not found: {path}")
 
-        import pypsa  # imported here to keep `import pypsa2html` cheap
-
-        logger.info("loading %s", path)
-        network = pypsa.Network(str(path))
+        network = _load_network(path)
         self._cache[horizon] = network
         while len(self._cache) > self.maxsize:
             evicted, _ = self._cache.popitem(last=False)
@@ -84,8 +119,17 @@ def discover_horizons(results_dir: Path, pattern: str, **fmt) -> list[int]:
     return sorted(set(horizons))
 
 
-def build_cache(results_dir: Path, model_config, maxsize: int = 2) -> NetworkCache:
-    """Build a :class:`NetworkCache` for one scenario directory."""
+def build_cache(
+    results_dir: Path,
+    model_config,
+    maxsize: int | None = None,
+) -> NetworkCache:
+    """Build a :class:`NetworkCache` for one scenario directory.
+
+    ``maxsize`` defaults to ``model_config.network_cache_size``, then to
+    ``None`` (keep all horizons).  Pass a positive int to bound RAM on
+    very large multi-horizon runs.
+    """
     fmt = {
         "clusters": model_config.clusters,
         "opts": model_config.opts,
@@ -109,4 +153,6 @@ def build_cache(results_dir: Path, model_config, maxsize: int = 2) -> NetworkCac
             "configured planning horizons have no solved network: "
             + ", ".join(f"{h} -> {p}" for h, p in missing.items())
         )
+    if maxsize is None:
+        maxsize = getattr(model_config, "network_cache_size", None)
     return NetworkCache(paths, maxsize=maxsize)

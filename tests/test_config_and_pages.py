@@ -123,6 +123,20 @@ def test_discover_horizons_ignores_a_different_clustering(tmp_path):
     assert found == [2030]
 
 
+def test_network_cache_defaults_to_all_horizons(tmp_path):
+    """Default maxsize must hold every horizon — an LRU of 2 thrashing is costly."""
+    from pypsa2html.networks import NetworkCache, clear_path_cache
+
+    clear_path_cache()
+    paths = {h: tmp_path / f"{h}.nc" for h in (2025, 2030, 2040, 2050)}
+    for p in paths.values():
+        p.write_bytes(b"")
+    cache = NetworkCache(paths)  # maxsize=None → len(paths)
+    assert cache.maxsize == 4
+    bounded = NetworkCache(paths, maxsize=2)
+    assert bounded.maxsize == 2
+
+
 # -- cost table normalisation ---------------------------------------------
 
 def test_normalise_costs_from_wide_layout():
