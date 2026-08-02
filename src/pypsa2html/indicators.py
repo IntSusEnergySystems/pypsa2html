@@ -558,27 +558,29 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
         # hardcoded this for 2020; pypsa-wal dropped it with its base year.
         flows.loc[base_year, ("pet_pe", "pet_fe", "")] = demand.loc[base_year]
 
-    # -- 3. distribution losses already inside the residential demand ------
-    # pypsa-wal correction; a no-op wherever `prelcdistloss` is not reported.
-    distribution_losses = column(flows, ("elc_se", "per", "dis"))
-    if distribution_losses.abs().sum() > 0:
-        flows[("elc_fe", "res", "elc")] = (
-            column(flows, ("elc_fe", "res", "elc")) - distribution_losses
-        )
+    # NB: the pypsa-wal fork subtracts the electricity distribution losses
+    # (``elc_se -> per`` type ``dis``) from the residential electricity demand
+    # here, on the grounds that they are counted twice.  That is *not* ported:
+    # with the shared extraction both models use, those losses are booked on
+    # the grid node only, and subtracting them makes the final-electricity node
+    # lose exactly that much (verified on the négaWatt reference: elc_fe is
+    # balanced to 1e-12 without the correction and short by 3.7-3.8 TWh with
+    # it).  If a model really does report the losses inside the demand, the
+    # place to fix it is the extraction layer, before step 1 sets the delivery.
 
-    # -- 4. deliveries straight from a primary energy ----------------------
+    # -- 3. deliveries straight from a primary energy ----------------------
     fec = fe_consumption()
     for carrier in PE_TO_FE_CARRIERS:
         flows[(f"{carrier}_pe", f"{carrier}_fe", "")] = fec.get(f"{carrier}_fe", _zeros(years))
 
-    # -- 5. fossil gas is the gas grid minus its renewable injections ------
+    # -- 4. fossil gas is the gas grid minus its renewable injections ------
     se_consumption = sum_by(flows, where="Source", nodes=se, by="Source")
     renewable_gas = sum(
         (column(flows, key).clip(lower=0) for key in GAS_GRID_RENEWABLE), _zeros(years)
     )
     flows[("gaz_pe", "gaz_se", "")] = se_consumption.get("gaz_se", _zeros(years)) - renewable_gas
 
-    # -- 6. nuclear thermal losses from the reactor efficiency -------------
+    # -- 5. nuclear thermal losses from the reactor efficiency -------------
     efficiency = ctx.cost("nuclear", "efficiency", default=float("nan"))
     if efficiency and np.isfinite(efficiency) and efficiency > 0:
         flows[("ura_pe", "per", "thm")] = column(flows, ("ura_pe", "elc_se", "thm")) * (
@@ -589,7 +591,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
             "no nuclear efficiency in the cost table; nuclear thermal losses omitted"
         )
 
-    # -- 7. domestic production versus imports -----------------------------
+    # -- 6. domestic production versus imports -----------------------------
     pe_supply = sum_by(flows, where="Source", nodes=pe, by="Source")
     domestic = list(DOMESTIC_CARRIERS) + (["enc"] if aggregate else [])
     for carrier in domestic:
@@ -606,18 +608,24 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
         flows[("prod", f"{carrier}_pe", "")] = np.minimum(used, local)
         flows[("imp", f"{carrier}_pe", "")] = (used - local).clip(lower=0)
 
-    # -- 8. biomass: exogenous potential versus modelled consumption -------
+    # -- 7. biomass: exogenous potential versus modelled consumption -------
     if not aggregate:
         potential = biomass_potential(ctx, node, list(years))
         if potential is not None:
-            # A horizon with no potential file keeps the model's own value.
+            # A horizon with no potential file keeps the model's own value;
+            # the négaWatt study ships none for its calibration year and the
+            # original patched that up with a hardcoded ``.loc['2020']``.
             potential = potential.fillna(column(flows, ("prod", "enc_pe", "")))
             used = pe_supply.get("enc_pe", _zeros(years))
             flows[("prod", "enc_pe", "")] = potential
-            flows[("imp", "enc_pe", "")] = used - potential
-            flows[("enc_pe", "exp", "")] = potential - used
+            # Clipped, like the elc/hyd balances below.  The original left both
+            # signed, so one of the pair was always a negative flow: invisible
+            # in the Sankey, which filters ``> 0``, but not in the primary
+            # energy totals, where a negative export subtracted real supply.
+            flows[("imp", "enc_pe", "")] = (used - potential).clip(lower=0)
+            flows[("enc_pe", "exp", "")] = (potential - used).clip(lower=0)
 
-    # -- 9. trade in secondary carriers ------------------------------------
+    # -- 8. trade in secondary carriers ------------------------------------
     if not aggregate:
         produced = sum_by(flows, where="Target", nodes=se, by="Target")
         consumed = sum_by(flows, where="Source", nodes=se, by="Source")
@@ -627,7 +635,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
             flows[("imp", code, "")] = balance.clip(lower=0)
             flows[(code, "exp", "")] = (-balance).clip(lower=0)
 
-    # -- 10. trade in final carriers, and their synthesis losses -----------
+    # -- 9. trade in final carriers, and their synthesis losses -----------
     produced = sum_by(flows, where="Target", nodes=fe, by="Target")
     consumed = fe_consumption()
     for carrier in TRADED_FE_CARRIERS:
@@ -642,7 +650,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
         flows[("imp", code, "")] = (demand - supply - electricity).clip(lower=0)
         flows[(code, "exp", "")] = (supply - demand - electricity).clip(lower=0)
 
-    # -- 11. rural heat pumps exclude the agricultural share ---------------
+    # -- 10. rural heat pumps exclude the agricultural share ---------------
     flows[("pac_fe", "res", "gr")] = (
         column(flows, ("pac_fe", "res", "gr")) - column(flows, ("pac_fe", "agr", ""))
     )
@@ -1007,9 +1015,12 @@ def for_node(ctx, node: str) -> Indicators | None:
         carbon = extract.carbon_flows(ctx, node)
     except (ImportError, AttributeError) as err:
         logger.warning(
-            "the extraction layer does not provide energy_flows/carbon_flows yet "
+            "the extraction layer does not provide energy_flows/carbon_flows "
             "(%s); SEPIA sections will be skipped", err,
         )
+        energy = carbon = None
+    except FileNotFoundError as err:
+        logger.warning("cannot extract flows for node %s: %s", node, err)
         energy = carbon = None
 
     if energy is None or carbon is None:

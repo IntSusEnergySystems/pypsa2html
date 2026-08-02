@@ -332,6 +332,8 @@ so they are not lost. Roughly in value order.
 
 ## Documentation
 
+- [`docs/TODO.md`](docs/TODO.md) — the remaining work, with sources, what to
+  build, what to fix on the way and how to verify. Start here to contribute.
 - [`docs/DESIGN_DECISIONS.md`](docs/DESIGN_DECISIONS.md) — every trade-off, with
   the alternatives considered and how hard each is to reverse.
 - [`docs/INTERNALS.md`](docs/INTERNALS.md) — the contract between layers; read
