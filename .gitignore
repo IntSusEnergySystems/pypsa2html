@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+
+# Generated output -- the whole point of the tool, never commit it
+/output/
+/html/
+examples/**/html/
+tests/**/_generated/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+.~lock.*#
+
+# NOTE: tests/data/ IS tracked on purpose -- it is the vendored negawatt
+# reference dataset. Do not add a blanket *.csv / *.xlsx ignore here; that is
+# exactly how pypsa-wal lost its SEPIA_config.xlsx and COUNTRIES.xlsx.

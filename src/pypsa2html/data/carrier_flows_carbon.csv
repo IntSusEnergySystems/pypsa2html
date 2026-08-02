@@ -1,0 +1,71 @@
+entry,label,unit,code
+process emissions,process emissions,MtCO2,emmprocess
+process emissions CC,process emissions CC,MtCO2,emmprocessccst
+CCGT,CCGT emissions,MtCO2,emmccgt
+lignite,lignite emissions,MtCO2,emmlig
+SMR CC,SMR emissions,MtCO2,emmsmr
+SMR CC_2,SMR emissions captored,MtCO2,emmsmrcc
+rural gas boiler,rural gas boiler,MtCO2,emmresbo
+oil refining emissions,oil refining emissions,MtCO2,emmoilref
+urban decentral gas boiler,urban decentral gas boiler,MtCO2,emmresubbo
+urban central gas boiler,urban central gas boiler,MtCO2,emmurbbbo
+rural oil boiler,rural oil boiler,MtCO2,emmresoil
+urban decentral oil boiler,urban decentral oil boiler,MtCO2,emmresuoil
+solid biomass for industry,solid biomass for industry,MtCO2,emmindbm
+solid biomass for industry_2,solid biomass for industry,MtCO2,emmindbmatm
+methanolisation,methanolisation,MtCO2,emmmet
+gas for industry,gas for industry,MtCO2,emmgas
+urban decentral biomass boiler,urban decentral biomass boiler,MtCO2,emmresbm
+urban decentral biomass boiler_2,residential urban decentral biomass boiler,MtCO2,emmresbmatm
+rural biomass boiler,rural biomass boiler,MtCO2,emmresbmm
+rural biomass boiler_2,rural biomass boiler,MtCO2,emmresbmmatm
+kerosene for aviation,kerosene for aviation,MtCO2,emmavi
+agriculture machinery oil emissions,agriculture machinery oil emissions,MtCO2,emmoilagr
+land transport oil emissions,land transport oil emissions,MtCO2,emmoiltra
+shipping oil emissions,shipping oil emissions,MtCO2,emmoilwati
+Waste CHP CC,Waste CHP CC,MtCO2,emmewastestm
+shipping methanol emissions,shipping methanol emissions,MtCO2,emmmetwati
+LULUCF,LULUCF,MtCO2,emmluf
+fossil oil,fossil oil,MtCO2,emmfossoil
+net co2 emissions,net co2 emissions,MtCO2,emmnet
+gas for industry CC1,gas for industry CC,MtCO2,emmgascc
+Waste CHP emissions,Waste CHP emissions,MtCO2,emmewasteatm
+HVC to air,HVC to air,MtCO2,emmehvcatm
+gas for industry CC2,gas for industry CC,MtCO2,emmgasccx
+solid biomass for industry CC,solid biomass for industry CC,MtCO2,emmindatmbm
+solid biomass for industry CC_2,solid biomass for industry CC,MtCO2,emmindbeccs
+solid biomass biomass to liquid CC_2,solid biomass to liquid CC,MtCO2,emmbmliqatcc
+urban central solid biomass CHP,urban central solid biomass CHP,MtCO2,emmbmchp
+urban central solid biomass CHP_2,urban central solid biomass CHP,MtCO2,emmbmchpatm
+coal,coal emissions,MtCO2,emmcoal
+solid biomass biomass to liquid,solid biomass to liquid,MtCO2,emmbmliq
+solid biomass biomass to liquid CC,solid biomass to liquid CC,MtCO2,emmbmliqcc
+solid biomass biomass to liquid_2,solid biomass to liquid,MtCO2,emmbmliqat
+biogas to gas,biogas to gas,MtCO2,emmbiogasat
+biogas to gas_2,biogas to gas,MtCO2,emmbiogas
+urban central gas CHP,urban central gas CHP,MtCO2,emmgaschp
+Fischer-Tropsch,Fischer-Tropsch,MtCO2,emmfischer
+solid biomass solid biomass to gas1,solid biomass solid biomass to gas,MtCO2,emmbmsngatm
+OCGT,OCGT emissions,MtCO2,emmocgt
+SMR,SMR emissions,MtCO2,emmsmrsm
+urban central solid biomass CHP CC,urban central solid biomass CHP,MtCO2,emmbmchpcc
+urban central solid biomass CHP CC_2,urban central solid biomass CHP,MtCO2,emmbmchpatmcc
+DAC,DAC,MtCO2,emmdac
+co2 sequestration,co2 sequestration,MtCO2,emmseq
+Electrobiofuels,Electrobiofuels,MtCO2,emmefuel
+Electrobiofuels_2,Electrobiofuels emissions,MtCO2,emmefuelemm
+solid biomass solid biomass to gas,solid biomass solid biomass to gas,MtCO2,emmbmsng
+solid biomass solid biomass to gas CC1,solid biomass solid biomass to gas CC,MtCO2,emmbmsngcc
+solid biomass solid biomass to gas CC2,solid biomass solid biomass to gas CC,MtCO2,emmbmsngccc
+Waste CHP CC1,Waste CHP CC1,MtCO2,emmewastestmatm
+solid biomass solid biomass to gas CC3,solid biomass solid biomass to gas CC,MtCO2,emmbmsngccca
+solid biomass solid biomass to gas CC4,solid biomass solid biomass to gas CC,MtCO2,emmbmsngcccb
+Sabatier,"Sabatier""",MtCO2,emmsaba
+urban central gas CHP CC1,urban central gas CHP CC,MtCO2,emmgaschpcc
+urban central gas CHP CC2,urban central gas CHP CC,MtCO2,emmgaschpatmcc
+biogas to gas CC,biogas to gas CC,MtCO2,emmbiogasatcc
+biogas to gas CC2,biogas to gas CC2,MtCO2,emmbiogascc
+biogas to gas CC3,biogas to gas CC,MtCO2,emmbiogasccc
+naphtha for industry,naphtha for industry,MtCO2,emmoil
+fossil gas,fossil gas,MtCO2,emmfossgas
+Non-energy GHG Agriculture,Non-energy GHG Agriculture,MtCO2,emmghgagri

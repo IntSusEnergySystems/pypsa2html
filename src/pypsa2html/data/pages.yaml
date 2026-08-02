@@ -1,0 +1,91 @@
+# Page manifest -- the single source of truth for what the report contains.
+#
+# In legacy SEPIA the same logical chart was named four different ways: a
+# prose key in config/plots.yaml ("Cummulative Emissions"), an HTML anchor
+# ("#ghg"), an html_texts slug ("CO2_emissions_sector") and a literal in a
+# hardcoded `sections` list.  Keeping them in sync was manual and two pairs had
+# already drifted apart in the shipped output.  Here each section has exactly
+# one `id`, used as the anchor, the plots toggle key and the narrative key.
+#
+# Fields
+#   id       unique across the whole report; becomes the HTML anchor
+#   title    display text (TOC entry and <h2>)
+#   builder  dotted path, resolved relative to pypsa2html.charts
+#   enabled  default on/off; override per project under `plots:` in the config
+#   scope    all | real | aggregate  -- which nodes this section applies to
+#   unit     axis/label unit, also written into the chart-data workbook
+
+pages:
+  - id: overview
+    title: Scenarios overview
+    kind: multi_scenario
+    sections:
+      - {id: cumulative_emissions,   title: Cumulative emissions,            builder: scenario.cumulative_emissions, unit: MtCO2eq}
+      - {id: energy_comparison,      title: Energy comparison,               builder: scenario.energy_comparison,    unit: TWh/year}
+      - {id: scenario_costs,         title: Annual costs,                    builder: scenario.costs,                unit: EUR/year}
+      - {id: scenario_investment,    title: Annual investment costs,         builder: scenario.investment_costs,     unit: EUR/year}
+      - {id: scenario_operational,   title: Annual operational costs,        builder: scenario.operational_costs,    unit: EUR/year}
+      - {id: scenario_capacities,    title: Capacities,                      builder: scenario.capacities,           unit: GW}
+      - {id: scenario_storage,       title: Storage capacities,              builder: scenario.storage_capacities,   unit: GWh}
+      - {id: scenario_cc,            title: Carbon capture capacities,       builder: scenario.cc_capacities,        unit: MtCO2/year, enabled: false}
+      - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%', scope: real}
+
+  - id: emissions
+    title: Emissions
+    sections:
+      - {id: ghg_by_sector,          title: CO2 emissions by sector,             builder: sepia.ghg_by_sector,            unit: MtCO2eq}
+      - {id: ghg_by_source,          title: CO2 emissions by source,             builder: sepia.ghg_by_source,            unit: MtCO2eq}
+      - {id: ghg_cum_by_sector,      title: Cumulative CO2 emissions by sector,  builder: sepia.ghg_cumulative_by_sector, unit: MtCO2eq}
+      - {id: ghg_cum_by_source,      title: Cumulative CO2 emissions by source,  builder: sepia.ghg_cumulative_by_source, unit: MtCO2eq, enabled: false}
+
+  - id: sankeys
+    title: Sankey diagrams
+    sections:
+      - {id: sankey_energy,          title: Sankey diagram,                  builder: sankey.energy, unit: TWh/year}
+      - {id: sankey_carbon,          title: Carbon Sankey diagram,           builder: sankey.carbon, unit: MtCO2}
+
+  - id: fec
+    title: Energy consumption
+    sections:
+      - {id: res_share,              title: Renewable energy share,                          builder: sepia.renewable_share,      unit: '%',        enabled: false}
+      - {id: fec_by_origin,          title: Final energy consumption by origin,              builder: sepia.fec_by_origin,        unit: TWh/year,   enabled: false}
+      - {id: domestic_share,         title: Share of domestic production,                    builder: sepia.domestic_share,       unit: '%',        enabled: false}
+      - {id: fec_by_sector,          title: Final energy consumption by each sector,         builder: sepia.fec_by_sector,        unit: TWh/year}
+      - {id: secondary_mix,          title: Mix of secondary energies,                       builder: sepia.secondary_mix,        unit: TWh/year,   enabled: false}
+      - {id: fec_by_carrier,         title: Final energy consumption by carrier per sector,  builder: sepia.fec_by_carrier,       unit: TWh/year}
+
+  - id: demands
+    title: Demands
+    sections:
+      - {id: sectoral_demands,       title: Sectoral demands,                builder: results.sectoral_demands, unit: TWh/year}
+
+  - id: costs
+    title: Costs
+    sections:
+      - {id: annual_costs,           title: Annual costs,                    builder: results.annual_costs,      unit: EUR/year}
+      - {id: clustered_costs,        title: Annual costs by group,           builder: results.clustered_costs,   unit: EUR/year}
+      - {id: investment_costs,       title: Annual investment costs,         builder: results.investment_costs,  unit: EUR/year}
+      - {id: operational_costs,      title: Annual operational costs,        builder: results.operational_costs, unit: EUR/year}
+
+  - id: capacities
+    title: Capacities
+    sections:
+      - {id: power_capacities,       title: Capacities,                      builder: results.capacities,         unit: GW}
+      - {id: storage_capacities,     title: Storage capacities,              builder: results.storage_capacities, unit: GWh}
+
+  - id: dispatch
+    title: Dispatch
+    sections:
+      - {id: power_dispatch_winter,  title: Power dispatch (winter week),    builder: dispatch.power_winter, unit: GW}
+      - {id: power_dispatch_summer,  title: Power dispatch (summer week),    builder: dispatch.power_summer, unit: GW}
+      - {id: heat_dispatch_winter,   title: Heat dispatch (winter week),     builder: dispatch.heat_winter,  unit: GW}
+      - {id: heat_dispatch_summer,   title: Heat dispatch (summer week),     builder: dispatch.heat_summer,  unit: GW}
+
+  - id: maps
+    title: Maps
+    # Maps do not depend on the selected node -- see output.shared_maps.
+    shared: true
+    sections:
+      - {id: map_costs,              title: System cost map,                 builder: maps.costs}
+      - {id: map_hydrogen,           title: Hydrogen network,                builder: maps.hydrogen}
+      - {id: map_gas,                title: Gas network,                     builder: maps.gas}

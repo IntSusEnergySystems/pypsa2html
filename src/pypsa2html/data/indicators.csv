@@ -1,0 +1,34 @@
+Code,Label,Unit,Value_Code,Used
+caispv,Installed capacity of solar photovoltaics,GW,caispv,Proxy
+fchspv,Average load factor for solar photovoltaics,%,fchspv,Proxy
+caieon,Installed onshore wind capacity,GW,caieon,Proxy
+fcheon,Average load factor for onshore wind,%,fcheon,Proxy
+caieof,Installed offshore wind capacity,GW,caieof,Proxy
+fcheof,Average load factor for offshore wind,%,fcheof,Proxy
+caienm,Installed marine energy sources capacity,GW,caienm,Proxy
+fchenm,Average load factor for marine energy sources,%,fchenm,Proxy
+caihdr,Installed hydropower capacity,GW,caihdr,Proxy
+caight,Installed capacity in high-temperature geothermal energy & CSP,GW,caight,Proxy
+fchght,Average load factor for high-temperature geothermal energy & CSP,%,fchght,Proxy
+pchydirg,Volumetric share of H2 that can be directly injected into the gas network,%,pchydirg,YES
+perresgaz,Gas network losses,%,perresgaz,YES
+perresvap,Heating network losses,%,perrescha,YES
+perreselc,Losses of the entire power grid,%,perreselc,YES
+pertraelc,Power transmission grid losses,%,pertraelc,Proxy
+perdiselc,Power distribution grid losses,%,perdiselc,Proxy
+pcenrcfcltra,Share of renewable energy sources in liquid fuel consumption for transport,%,prespcenrcfcltra,YES
+pcenrwst,Share of renewables in solid waste,%,pcenrwst,YES
+tghgenes,Total GHG emissions from non-energy sources,MtCO2eq,tghgenes,No
+ghgagrnes,Total net GHG emissions from non-energy sources in agriculture,MtCO2eq,soltneghgagrnes,YES
+ghgindnes,GHG emissions from non-energy sources in industry,MtCO2eq,ghgindnes,YES
+ghgwstnes,GHG emissions from non-energy sources in waste management,MtCO2eq,ghgwstnes,YES
+pop,Total population,k,pop,YES
+ghgco2luf,Total CO2 emissions from the LULUCF sector,MtCO2eq,solghgco2luf,YES
+ghgch4luf,Total CH4 emissions from the LULUCF sector,MtCO2eq,solghgch4luf,YES
+ghgn2oluf,Total N2O emissions from the LULUCF sector,MtCO2eq,solghgn2oluf,YES
+ghgothluf,"Total other GHG (HFC, PFC, SF6) emissions from the LULUCF sector",MtCO2eq,solghgothluf,YES
+ghgco2agr,Total CO2 emissions from agriculture,MtCO2eq,solghgco2agr,YES
+ghgch4agr,Total CH4 emissions from agriculture,MtCO2eq,solghgch4agr,YES
+ghgothnes,GHG emissions from non-energy sources in other sectors (industrial product use),MtCO2eq,ghgothnes,YES
+defpetcfens,Ratio of reffinery oil consumption vs. total primary oil consumption,TWh / TWh,defpetcfens,YES
+defgazcfens,Ratio of reffinery gas consumption vs. total primary oil consumption,TWh / TWh,defgazcfens,YES

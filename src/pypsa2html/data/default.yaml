@@ -1,0 +1,60 @@
+# pypsa2html -- packaged defaults.
+#
+# A project config is deep-merged over this file, so it only needs to state
+# what differs.  Every key here is documented in docs/configuration.md.
+
+project:
+  name: PyPSA results
+  subtitle: ""
+  logo: null            # URL or path to a logo overlaid on charts; null = none
+  website: null         # "back to project site" link in the nav bar
+  decimals: 3
+
+model:
+  clusters: adm
+  opts: ""
+  sector_opts: ""
+  network_pattern: "networks/base_s_{clusters}_{opts}_{sector_opts}_{horizon}.nc"
+  planning_horizons: null   # null = discover from the files on disk
+  base_year: null           # e.g. 2020 to merge an exogenous historical column
+  base_year_source: null    # path template for that column, relative to root
+  flow_threshold: 0.1       # TWh (Mt for CO2); flows below this are dropped
+
+nodes:
+  detect: true          # read n.buses.location from the first solved network
+  include: null         # explicit list; overrides detection entirely
+  exclude: []           # subtracted from the detected list
+  labels: {}            # {BEWAL: Wallonia} -- display names for the dropdown
+  focus: null           # main region; null = first node. Drives the landing page.
+  resolution: location  # 'location' (robust) or 'substring' (legacy SEPIA)
+  aggregate:
+    enabled: true
+    code: ALL           # NOT "EU": that is a real PyPSA-Eur bus location
+    label: ""           # "" = "All N regions"
+
+landing:
+  scenario: null        # null = first declared scenario
+  node: null            # null = nodes.focus
+  page: overview
+
+output:
+  dir: html
+  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  shared_maps: true     # one maps page for the whole site, not one per node
+  plotly: cdn           # 'cdn' (small pages, needs network) or 'inline' (offline)
+  chart_data: true      # also write ChartData_<node>.xlsx
+  write_index: true     # generate index.html redirecting to the landing page
+
+# Per-section on/off switches, keyed by the section ids in data/pages.yaml.
+# Anything not listed keeps the manifest default.
+plots: {}
+
+# Narrative HTML injected above a section, keyed by section id then node code.
+# `default` applies to any node without a specific entry.
+#   texts:
+#     sankey_energy:
+#       default: "<p>...</p>"
+#       BEWAL:   "<p>Wallonia-specific ...</p>"
+texts: {}
+
+scenarios: []

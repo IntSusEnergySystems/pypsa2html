@@ -1,0 +1,152 @@
+{#
+  pypsa2html page template.
+
+  Everything the legacy pypsa.html hardcoded in JavaScript -- the country
+  <option> list, the six-branch updateCountry() chain, the six byte-identical
+  fileOptions arrays and the eight-branch scenario switcher -- is generated
+  here from the node set, the page manifest and the scenario list.  Adding a
+  node or a scenario is now a config change, not three edits to a JS blob.
+
+  The table of contents is rendered into the DOM instead of being injected as
+  a JavaScript string literal, which removes the quote-escaping landmine that
+  forced every legacy TOC entry to use single-quoted href attributes.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ project.name }} &ndash; {{ node.label }} &ndash; {{ page.title }}</title>
+{% if plotly_js %}{{ plotly_js }}{% endif %}
+<style>
+:root {
+  --p2h-bg: #ffffff; --p2h-fg: #1a1a1a; --p2h-muted: #5c5c5c;
+  --p2h-line: #e2e2e2; --p2h-accent: #007a5e; --p2h-panel: #f7f7f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --p2h-bg:#15171a; --p2h-fg:#e8e8e8; --p2h-muted:#a0a0a0;
+          --p2h-line:#2e3238; --p2h-accent:#4fd1a5; --p2h-panel:#1c1f23; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--p2h-bg); color:var(--p2h-fg);
+       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+       line-height:1.55; }
+a { color: var(--p2h-accent); }
+nav.p2h-top { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap;
+  gap:1rem; align-items:center; padding:.6rem 1.2rem;
+  background:var(--p2h-panel); border-bottom:1px solid var(--p2h-line); }
+nav.p2h-top .brand { font-weight:600; margin-right:auto; }
+nav.p2h-top img.logo { height:34px; vertical-align:middle; margin-right:.6rem; }
+nav.p2h-top label { font-size:.85rem; color:var(--p2h-muted); margin-right:.3rem; }
+nav.p2h-top select { padding:.3rem .5rem; border:1px solid var(--p2h-line);
+  border-radius:4px; background:var(--p2h-bg); color:var(--p2h-fg); font-size:.9rem; }
+main { max-width:1500px; margin:0 auto; padding:1.5rem 1.2rem 4rem; }
+.p2h-layout { display:grid; grid-template-columns:minmax(0,1fr); gap:1.5rem; }
+@media (min-width: 1100px) { .p2h-layout { grid-template-columns:230px minmax(0,1fr); } }
+aside.p2h-toc { align-self:start; position:sticky; top:4.2rem;
+  background:var(--p2h-panel); border:1px solid var(--p2h-line);
+  border-radius:6px; padding:.9rem 1rem; font-size:.9rem; }
+aside.p2h-toc h2 { font-size:.8rem; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--p2h-muted); margin:.2rem 0 .6rem; }
+aside.p2h-toc ul { list-style:none; margin:0; padding:0; }
+aside.p2h-toc li { margin:.35rem 0; }
+aside.p2h-toc ul.pages { border-top:1px solid var(--p2h-line);
+  margin-top:.8rem; padding-top:.6rem; }
+aside.p2h-toc a.current { font-weight:600; }
+section.p2h-section { margin-bottom:3rem; scroll-margin-top:4.5rem; }
+section.p2h-section h2 { font-size:1.35rem; margin:0 0 .4rem;
+  padding-bottom:.3rem; border-bottom:2px solid var(--p2h-accent); }
+.p2h-desc { color:var(--p2h-muted); margin:.4rem 0 1rem; }
+.p2h-chart { width:100%; overflow-x:auto; }
+.p2h-embed { width:100%; border:0; min-height:820px; }
+footer.p2h-foot { max-width:1500px; margin:0 auto; padding:1rem 1.2rem 3rem;
+  color:var(--p2h-muted); font-size:.8rem; text-align:right;
+  border-top:1px solid var(--p2h-line); }
+.p2h-missing { padding:1rem; border:1px dashed var(--p2h-line);
+  border-radius:6px; color:var(--p2h-muted); }
+</style>
+</head>
+<body>
+
+<nav class="p2h-top">
+  <span class="brand">
+    {%- if project.logo %}<img class="logo" src="{{ project.logo }}" alt="">{% endif -%}
+    {%- if project.website %}<a href="{{ project.website }}">{{ project.name }}</a>
+    {%- else %}{{ project.name }}{% endif -%}
+  </span>
+
+  {% if nodes|length > 1 %}
+  <span>
+    <label for="p2h-node">Region</label>
+    <select id="p2h-node" onchange="p2hGo('node', this.value)">
+      {% for n in nodes %}
+      <option value="{{ n.code }}" {% if n.code == node.code %}selected{% endif %}>{{ n.label }}</option>
+      {% endfor %}
+    </select>
+  </span>
+  {% endif %}
+
+  {% if scenarios|length > 1 %}
+  <span>
+    <label for="p2h-scenario">Scenario</label>
+    <select id="p2h-scenario" onchange="p2hGo('scenario', this.value)">
+      {% for s in scenarios %}
+      <option value="{{ s.name }}" {% if s.name == scenario.name %}selected{% endif %}>{{ s.label }}</option>
+      {% endfor %}
+    </select>
+  </span>
+  {% endif %}
+</nav>
+
+<main>
+<div class="p2h-layout">
+  <aside class="p2h-toc">
+    {% if page.sections %}
+    <h2>On this page</h2>
+    <ul>
+      {% for s in sections %}
+      <li><a href="#{{ s.id }}">{{ s.title }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <h2 style="margin-top:1rem">Pages</h2>
+    <ul class="pages">
+      {% for p in manifest %}
+      <li><a href="{{ p.href }}" {% if p.id == page.id %}class="current"{% endif %}>{{ p.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </aside>
+
+  <div>
+    <h1 style="margin-top:0">{{ node.label }} &mdash; {{ page.title }}</h1>
+    {% if scenario_note %}<p class="p2h-desc">{{ scenario_note }}</p>{% endif %}
+    {{ main_content }}
+  </div>
+</div>
+</main>
+
+<footer class="p2h-foot">
+  Generated by pypsa2html {{ version }} on {{ generated_at }}
+  &middot; scenario <strong>{{ scenario.label }}</strong>
+</footer>
+
+<script>
+// The URL contract is "<node>_<page>_<scenario>.html" (shared pages drop the
+// node prefix).  Both selectors rebuild the filename from the manifest that
+// was rendered into the page, so no per-node JS branch is needed.
+var P2H = {
+  node: {{ node.code | tojson }},
+  scenario: {{ scenario.name | tojson }},
+  page: {{ page.id | tojson }},
+  shared: {{ page.shared | tojson }}
+};
+function p2hGo(what, value) {
+  var node = what === 'node' ? value : P2H.node;
+  var scen = what === 'scenario' ? value : P2H.scenario;
+  var name = P2H.shared ? (P2H.page + '_' + scen + '.html')
+                        : (node + '_' + P2H.page + '_' + scen + '.html');
+  window.location.href = name;
+}
+</script>
+</body>
+</html>

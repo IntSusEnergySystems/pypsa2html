@@ -1,0 +1,170 @@
+entry,label,unit,code
+solar,Solar photovoltaic Production,TWh,prospv
+solar rooftop,Solar photovoltaic Production Rooftop,TWh,prospvr
+onwind,Onshore wind-generated electricity,TWh,proeon
+solar-hsat,Solar photovoltaic Production hsat,TWh,prohsat
+offwind-ac,Offshore wind-generated electricity,TWh,proeofac
+offwind-dc,Offshore wind-generated electricity,TWh,proeofdc
+hydro,Total hydropower production,TWh,prohdr
+ror,Total ror production,TWh,prohdror
+nuclear,Nuclear production,TWh,proelcnuc
+coal,Coal-fired power generation,TWh,proelccms
+lignite,lignite power generation,TWh,proelign
+CCGT,Gas-fired power generation,TWh,proelcgaz
+urban central solid biomass CHP,Power output from solid biomass CHP plants,TWh,prbelcchpboi
+urban central solid biomass CHP_2,Heat output from solid biomass CHP plants,TWh,prbvapchpboi
+H2 Electrolysis,Production of H2 via electrolysis,TWh,prohyd
+methanolisation,Production of methanol via methanolisation,TWh,promethanol
+Haber-Bosch,Production of liquid ammonia from electricity,TWh,prohydcl
+SMR,Production of H2 via steam methane reforming,TWh,prohydgaz
+SMR CC,Production of H2 via steam methane reforming,TWh,prohydgazcc
+coal_2,Transformation losses (coal-fired powerplants),TWh,losscoal
+lignite_2,Transformation losses (coal-fired powerplants),TWh,losslig
+CCGT_2,Transformation losses (gas-fired powerplants),TWh,lossgas
+urban central solid biomass CHP_3,Transformation losses (solid biomass CHP plants),TWh,lossbchp
+H2 Electrolysis_3,Transformation losses (electrolysis),TWh,losshely
+methanolisation_2,waste heat methanolisation,TWh,prehdvap
+Haber-Bosch_2,haberbosch waste heat,TWh,prohydvap
+H2 Electrolysis_2,electrolysis to heat,TWh,prehvvap
+urban decentral biomass boiler_2,Transformation losses (solid biomass boilers),TWh,lossbbb
+rural gas boiler_2,Transformation losses rural gas boiler,TWh,lossgbs
+Haber-Bosch_3,Production losses of ammonia),TWh,prohydclam
+rural oil boiler_2,Transformation losses rural oil boiler,TWh,lossob
+urban decentral oil boiler_2,Transformation losses (oil-fired boilers),TWh,lossobb
+electricity,electricity demand of residential and tertairy,TWh,preselccfres
+Rail Network,electricity demand for rail network,TWh,preserail
+urban decentral gas boiler,urban decentral gas boiler,TWh,presgazcfg
+rural gas boiler,rural gas boiler,TWh,presgazcfgg
+rural oil boiler,rural oil boiler,TWh,prespetcfres
+urban decentral oil boiler,urban decentral oil boiler,TWh,prespetcfo
+rural ground heat pump,rural ground heat pump,TWh,prespaccfta
+rural ground heat pump_2,rural ground heat pump,TWh,prespaccftaa
+urban decentral air heat pump,urban decentral air heat pump,TWh,prespaccfftt
+urban decentral air heat pump_2,urban decentral air heat pump,TWh,prespaccffff
+rural resistive heater,rural resistive heater,TWh,preehplyy
+urban decentral resistive heater_2,urban decentral resistive heater losses,TWh,lossrhh
+rural resistive heater_2,rural resistive heater losses,TWh,lossrh
+agriculture heat,agriculture heat,TWh,presvapcfagr
+land transport oil,oil to transport demand,TWh,preslqfcftra
+land transport fuel cell,land transport hydrogen demand,TWh,preshydcftra
+land transport EV,land transport EV,TWh,preselccftra
+kerosene for aviation,aviation oil demand,TWh,preslqfcfavi
+shipping oil,shipping oil,TWh,preslqfcffrewati
+shipping methanol,shipping methanol,TWh,presngvcffrewati
+solid biomass for industry,solid biomass for Industry,TWh,presenccfind
+solid biomass for industry CC,solid biomass for Industry,TWh,presenccfindd
+gas for industry,gas for Industry,TWh,presgazcfind
+gas for industry CC,gas for Industry,TWh,presgazcfindd
+industry electricity,electricity for Industry,TWh,preselccfind
+low-temperature heat for industry,low-temperature heat for industry,TWh,presvapcfind
+H2 for industry,hydrogen for industry,TWh,preshydcfind
+naphtha for industry,naphtha for non-energy,TWh,prespetcfneind
+H2 for non-energy,H2 for non-energy,TWh,preshydcfneind
+agriculture machinery oil,agriculture oil,TWh,prespetcfagr
+agriculture electricity,agriculture electricity,TWh,preselccfagr
+EV charger,BEV charging,TWh,prebev
+EV charger_2,BEV charging losses,TWh,prebevloss
+V2G,vehicle to grid,TWh,prevtg
+V2G_2,vehicle to grid losses,TWh,prevtgloss
+NH3_2,ammonia for industry,TWh,preammind
+NH3,hydrogen to ammonia,TWh,prohydclamm
+urban central air heat pump,Heat energy output from centralised heat pumps,TWh,prbrchpac
+urban central air heat pump_2,Heat energy output from centralised heat pumps,TWh,prbrchpacc
+urban central gas boiler,Heat energy output from gas-fired boilers,TWh,prbrchgaz
+urban central gas boiler_2,Heat energy output from gas-fired boilers,TWh,prbrchgazzloss
+methanolisation_3,Transformation losses (methanolisation),TWh,lossmet
+urban central resistive heater,Heat energy output from centralised resistive heaters,TWh,prbchresh
+urban central resistive heater_2,centralised resistive heaters losses,TWh,prbchreshh
+rural heat,Residential and tertiary heat demand,TWh,demandheat
+urban decentral gas boiler_2,urban decentral gas boiler losses,TWh,lossgbss
+biomass to liquid,biomass to liquid,TWh,probmliqu
+urban decentral heat,Residential and tertiary heat demand,TWh,demandheatc
+rural biomass boiler_2,rural biomass boiler losses,TWh,lossbb
+urban central water tanks charger,TES charging,TWh,pretesdhs
+gas for industry CC_2,Transformation losses gas for industry CC,TWh,lossgasind
+SMR_2,Transformation losses (steam methane reforming),TWh,lossmr
+SMR CC_2,Transformation losses (steam methane reforming),TWh,lossmrr
+urban central heat,Residential and tertiary DH demand,TWh,presvapcfdhs
+rural water tanks charger,rural water tanks charger,TWh,prerurtescharg
+rural water tanks discharger,rural water tanks discharger,TWh,prerurtesdischarg
+battery charger,battery charger,TWh,probattchg
+battery charger_2,battery charger losses,TWh,probattchlos
+H2 pipeline_2,electricity to H2 compression,TWh,preelchhydcomp
+fossil oil,fossil oil,TWh,prefossiloil
+battery discharger,battery discharger,TWh,probattdhg
+battery discharger_2,battery discharger losses,TWh,probattdhlos
+H2 turbine,hydrogen turbine,TWh,proelchyd
+H2 turbine_2,hydrogen turbine losses,TWh,fftfy
+Fischer-Tropsch,Fischer-Tropsch,TWh,profischer
+Fischer-Tropsch_2,Fischer-Tropsch heat,TWh,profischerh
+Fischer-Tropsch_3,Fischer-Tropsch losses,TWh,profischerlo
+urban central water tanks discharger,TES discharging,TWh,pretesdhd
+urban central gas CHP,Power output from gas CHP plants,TWh,prbelcchpgaz
+urban central gas CHP_2,Heat output from gas CHP plants,TWh,prbvapchpgass
+urban central gas CHP_3,Losses from gas CHP plants,TWh,dqzf
+OCGT,Gas-fired power generation,TWh,proelcgazoc
+OCGT_2,Gas-fired power generation losses,TWh,proelcgazoclo
+biogas to gas,biogas to gas,TWh,prodombgr
+BioSNG,BioSNG,TWh,probiosng
+Sabatier,Sabatier,TWh,presaba
+kerosene for aviation_2,aviation oil demand to demand,TWh,preslqfcfaviker
+urban central solid biomass CHP CC,Power output from solid biomass CHP plants,TWh,prbelccbmcc
+urban central solid biomass CHP CC_2,Heat output from solid biomass CHP plants,TWh,prbelccbmcch
+urban central solid biomass CHP CC_3,losses solid biomass CHP plants,TWh,prbelccbmccl
+biomass to liquid CC,biomass to liquid CC,TWh,probmliqucc
+DAC,DAC,TWh,predacelc
+DAC_3,DAC,TWh,predachee
+H2 for shipping,shipping hydrogen,TWh,preshydwati
+biomass,biomass elec production,TWh,proelcboi
+BioSNG_2,BioSNG losses,TWh,probiosngloss
+urban central gas CHP CC,Power output from gas CHP CC plants,TWh,prbelcchpccgaz
+urban central gas CHP CC_2,Heat output from gas CHP CC plants,TWh,prbvapchpccgaz
+urban central gas CHP CC_3,losses gas CC CHP plants,TWh,lossgazchpcc
+H2 Fuel Cell,H2 fuell cell to electricity,TWh,prbelcchphyd
+H2 Fuel Cell_2,H2 fuell cell to heat,TWh,prbvapchphyd
+H2 Fuel Cell_3,H2 fuell cell losses,TWh,afzf
+coal for industry,coal for industry,TWh,cmscfind
+biogas to gas CC,biogas to gas CC,TWh,prodombgrcc
+home battery charger,home battery charger,TWh,prehbatelc
+home battery discharger,home battery discharger,TWh,prebatelcd
+home battery charger_2,home battery charger losses,TWh,prebatloss
+home battery discharger_2,home battery discharger losses,TWh,prebatelcdloss
+DC,Electricity grid losses,TWh,pregridloss
+Oil for industry,Oil for industry,TWh,prespetcfind
+industry methanol,methanol for Industry,TWh,presmethcfind
+agriculture machinery oil_2,agriculture oil to demand,TWh,prespetcfagrr
+industry methanol_2,methanol to demand,TWh,presmethcfindmeth
+municipal solid waste,municipal solid waste,TWh,premunwst
+naphtha for industry_2,oil to naphtha for non-energy,TWh,prespetcfneindoil
+offwind-float,floating offshore wind-generated electricity,TWh,proeof
+shipping methanol_2,shipping methanol to demand,TWh,presngvcffrewatidm
+solid biomass import,solid biomass import,TWh,presencimp
+urban central water pits charger,Water pits TES charging,TWh,pretespitsdhs
+urban central water pits discharger,Water pits TES discharging,TWh,pretespitsdhd
+urban decentral water tanks charger,urban decentral water tanks charger,TWh,preurbtescharg
+urban decentral water tanks discharger,urban decentral water tanks discharger,TWh,preurbtesdischarg
+waste CHP,waste CHP,TWh,prbelcchpwst
+waste CHP CC,waste CHP CC,TWh,prewstelccc
+naphtha for industry_3,oil to process emissions,TWh,prespetcfprodoil
+waste CHP_2,waste CHP to heat,TWh,prbvapchpwst
+waste CHP CC_2,waste CHP CC to heat,TWh,prewstvapcc
+HVC to air,HVC to air losses,TWh,prelosshvc
+Haber-Bosch_4,Production of ammonia from H2),TWh,prohydclamm
+biomass to liquid CC_2,biomass to liquid CC losses,TWh,probmliqloscc
+electricity distribution grid,electricity distribution grid losses,TWh,prelcdistloss
+electrobiofuels,electrobiofuels,TWh,probmelcbio
+electrobiofuels_2,electrobiofuels losses,TWh,probmelcbioloss
+methanolisation_4,electricity to methanol,TWh,pretareen
+solid biomass for industry CC_2,solid biomass for Industry cc losses,TWh,presenccfinddloss
+waste CHP_3,waste CHP losses,TWh,dz
+waste CHP CC_3,waste CHP CC losses,TWh,dzzz
+electrobiofuels_3,electrobiofuels H2,TWh,probmelcbioh
+naphtha for industry_4,naphtha losses,TWh,prespetcfproil
+coal for industry_2,coal for industry demand,TWh,cmscfinddem
+land transport oil_2,oil to transport oil demand,TWh,preslqfcfdem
+oil,Oil-fired generation,TWh,proelcpet
+oil_2,Trnasformation losses iil-fired generation,TWh,pof
+urban decentral biomass boiler,Residential and tertiary biomass for heating,TWh,presenccfb
+rural biomass boiler,rural biomass boiler,TWh,presenccfres
+urban decentral resistive heater,urban decentral resistive heater,TWh,preehplx
+biomass to liquid_2,biomass to liquid losses,TWh,probmliqlos
