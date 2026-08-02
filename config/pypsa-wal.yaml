@@ -1,0 +1,57 @@
+# PyPSA-Wal -- Walloon regional model (repo: pypsa-wal).
+#
+#     pypsa2html build --config /path/to/pypsa2html/config/pypsa-wal.yaml
+root: /home/sylvain/svn/pypsa-wal
+
+project:
+  name: PyPSA-Wal
+  subtitle: Walloon energy system scenarios
+  decimals: 3
+
+model:
+  clusters: adm
+  opts: ""
+  sector_opts: ""
+  planning_horizons: null      # 2025 / 2030 / 2040 / 2050, discovered on disk
+
+nodes:
+  detect: true
+  focus: BEWAL                 # Wallonia is the region of interest
+  labels:
+    BEWAL: Wallonia
+    BEVLG: Flanders
+    BEBRU: Brussels
+    DE: Germany
+    FR: France
+    GB: Great Britain
+    LU: Luxembourg
+    NL: Netherlands
+  aggregate:
+    enabled: true
+    code: ALL
+    label: All regions
+
+scenarios:
+  - name: scen_demande_haute
+    label: High demand
+    results_dir: results/times-pypsa/scen_demande_haute
+    resources_dir: resources/times-pypsa/scen_demande_haute
+  - name: scen_corrige
+    label: Corrected
+    results_dir: results/times-pypsa/scen_corrige
+    resources_dir: resources/times-pypsa/scen_corrige
+  - name: scen_base
+    label: Base
+    results_dir: results/times-pypsa/scen_base
+    resources_dir: resources/times-pypsa/scen_base
+
+landing:
+  scenario: scen_demande_haute   # the most recently solved scenario
+  node: BEWAL
+  page: overview
+
+output:
+  dir: results/times-pypsa/html
+  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  shared_maps: true
+  plotly: cdn

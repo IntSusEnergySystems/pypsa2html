@@ -1,0 +1,208 @@
+"""The build context -- the object that replaces the magic ``snakemake`` global.
+
+Legacy SEPIA read ``snakemake`` from three different scopes and carried a
+further dozen values (``study``, ``countries``, ``loaded_files``, ``fn``,
+``logo``, ``file_path``, ``planning_horizons``, ...) as module globals set in a
+``__main__`` block.  Four of those globals were *rebound from a function to a
+DataFrame* (``costs = costs(...)``), which made the function uncallable
+afterwards.  Every ported routine now takes a :class:`BuildContext` instead.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from functools import cached_property
+from pathlib import Path
+
+import pandas as pd
+
+from .config import Config, ScenarioConfig
+from .datafiles import Taxonomy, load_taxonomy
+from .networks import NetworkCache, build_cache
+from .nodes import NodeResolver, NodeSet, build_node_set, detect_locations
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BuildContext:
+    """Everything one scenario's page builders need, passed explicitly."""
+
+    config: Config
+    scenario: ScenarioConfig
+    taxonomy: Taxonomy
+    nodes: NodeSet
+    networks: NetworkCache
+    results_dir: Path
+    resources_dir: Path
+    #: Cache for CSV/xlsx reads, so a file is parsed once per build rather
+    #: than once per (node x horizon) as in the original.
+    _files: dict = field(default_factory=dict, repr=False)
+
+    # -- derived ----------------------------------------------------------
+    @property
+    def horizons(self) -> list[int]:
+        return self.networks.horizons
+
+    @property
+    def year_columns(self) -> list[str]:
+        """Output column labels, derived from the horizons.
+
+        Replaces the ``['2020','2030','2040','2050']`` literals that appeared
+        in ~20 places and made 2035/2045 structurally impossible.
+        """
+        base = self.config.model.base_year
+        cols = [str(h) for h in self.horizons]
+        if base is not None and str(base) not in cols:
+            cols = [str(base)] + cols
+        return cols
+
+    def horizon_weights(self) -> pd.Series:
+        """Years represented by each horizon, for cumulative sums.
+
+        Legacy SEPIA hardcoded ``*= 10`` for a decadal grid and left the first
+        horizon unweighted; the pypsa-wal fork bolted on ``*= 5``. Here the
+        weight of each horizon is the gap to the next one, with the last
+        horizon inheriting the previous gap.
+        """
+        h = self.horizons
+        if len(h) == 1:
+            return pd.Series([1.0], index=h, dtype=float)
+        gaps = [h[i + 1] - h[i] for i in range(len(h) - 1)]
+        return pd.Series(gaps + [gaps[-1]], index=h, dtype=float)
+
+    def resolver(self, horizon: int) -> NodeResolver:
+        return NodeResolver(self.networks[horizon], self.config.nodes.resolution)
+
+    def is_aggregate(self, node: str) -> bool:
+        return self.nodes.is_aggregate(node)
+
+    # -- cached file access ------------------------------------------------
+    def read_csv(self, relpath: str | Path, *, base: str = "results", **kwargs):
+        """Read a CSV relative to the scenario's results or resources dir.
+
+        Returns ``None`` when the file is absent, so a page builder can degrade
+        to a placeholder instead of crashing the whole run.
+        """
+        root = self.results_dir if base == "results" else self.resources_dir
+        path = Path(root) / relpath
+        key = ("csv", str(path), tuple(sorted(kwargs.items())))
+        if key not in self._files:
+            if not path.exists():
+                logger.warning("missing input, section will be skipped: %s", path)
+                self._files[key] = None
+            else:
+                self._files[key] = pd.read_csv(path, **kwargs)
+        value = self._files[key]
+        return None if value is None else value.copy()
+
+    def read_excel(self, relpath: str | Path, *, base: str = "results", **kwargs):
+        root = self.results_dir if base == "results" else self.resources_dir
+        path = Path(root) / relpath
+        key = ("xls", str(path), tuple(sorted(kwargs.items())))
+        if key not in self._files:
+            if not path.exists():
+                logger.warning("missing input, section will be skipped: %s", path)
+                self._files[key] = None
+            else:
+                self._files[key] = pd.read_excel(path, **kwargs)
+        value = self._files[key]
+        return None if value is None else (
+            {k: v.copy() for k, v in value.items()} if isinstance(value, dict) else value.copy()
+        )
+
+    @cached_property
+    def costs(self) -> pd.DataFrame | None:
+        """Technology cost assumptions, indexed by ``(technology, parameter)``.
+
+        The legacy code did ``pd.read_csv(fn, index_col=[0, 1])`` on what is
+        actually a *wide* table, so ``.loc[("gas", "CO2 intensity")]`` returned
+        a length-1 Series and ``float(...)`` on it raises from pandas 2.2 on.
+        Here the shape is detected and normalised.
+        """
+        for candidate in (
+            "costs_2050_processed.csv",
+            f"costs_{self.horizons[-1]}_processed.csv",
+            "costs.csv",
+        ):
+            raw = self.read_csv(candidate, base="resources")
+            if raw is not None:
+                return _normalise_costs(raw)
+        logger.warning("no technology cost table found under %s", self.resources_dir)
+        return None
+
+    def cost(self, technology: str, parameter: str, default: float | None = None) -> float:
+        """One scalar cost assumption, or ``default`` when unavailable."""
+        table = self.costs
+        if table is None:
+            if default is None:
+                raise KeyError(f"no cost table available for ({technology}, {parameter})")
+            return default
+        try:
+            return float(table.at[(technology, parameter), "value"])
+        except (KeyError, ValueError, TypeError):
+            if default is None:
+                raise KeyError(
+                    f"cost assumption ({technology!r}, {parameter!r}) not found"
+                ) from None
+            logger.debug("cost (%s, %s) missing, using %s", technology, parameter, default)
+            return default
+
+
+def _normalise_costs(raw: pd.DataFrame) -> pd.DataFrame:
+    """Coerce either cost-table layout into ``(technology, parameter) -> value``."""
+    cols = {c.lower(): c for c in raw.columns}
+    if "technology" in cols and "parameter" in cols and "value" in cols:
+        long = raw.rename(
+            columns={cols["technology"]: "technology", cols["parameter"]: "parameter",
+                     cols["value"]: "value"}
+        )
+        return long.set_index(["technology", "parameter"])[["value"]]
+
+    # Wide layout: first column is the technology, the rest are parameters.
+    tech_col = raw.columns[0]
+    long = raw.melt(id_vars=[tech_col], var_name="parameter", value_name="value")
+    long = long.rename(columns={tech_col: "technology"})
+    long = long.dropna(subset=["value"])
+    long = long.drop_duplicates(subset=["technology", "parameter"], keep="first")
+    return long.set_index(["technology", "parameter"])[["value"]]
+
+
+def build_context(config: Config, scenario_name: str | None = None) -> BuildContext:
+    """Assemble the context for one scenario, auto-detecting nodes."""
+    scenario = config.scenario(scenario_name) if scenario_name else config.scenarios[0]
+    results_dir = config.results_dir(scenario.name)
+    resources_dir = config.resources_dir(scenario.name)
+    if not results_dir.exists():
+        raise FileNotFoundError(
+            f"scenario {scenario.name!r}: results_dir does not exist: {results_dir}"
+        )
+
+    networks = build_cache(results_dir, config.model)
+
+    detected: list[str] = []
+    if config.nodes.detect:
+        detected = detect_locations(networks.first())
+        logger.info("detected nodes in %s: %s", scenario.name, detected)
+
+    agg = config.nodes.aggregate
+    nodes = build_node_set(
+        detected,
+        include=config.nodes.include,
+        exclude=config.nodes.exclude,
+        labels=config.nodes.labels,
+        focus=config.nodes.focus,
+        aggregate_code=agg.code if agg.enabled else None,
+        aggregate_label=agg.label or None,
+    )
+
+    return BuildContext(
+        config=config,
+        scenario=scenario,
+        taxonomy=load_taxonomy(),
+        nodes=nodes,
+        networks=networks,
+        results_dir=results_dir,
+        resources_dir=resources_dir,
+    )

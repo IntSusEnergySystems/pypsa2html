@@ -1,0 +1,68 @@
+# négaWatt Belgium study (PyPSA-Eur, repo: pypsa-eur_negawatt).
+#
+# Reproduces the report the legacy SEPIA scripts produced from
+# `results/{ref,suff}`. Run from the pypsa-eur_negawatt repository root:
+#
+#     pypsa2html build --config /path/to/pypsa2html/config/negawatt.yaml
+#
+# `root` is where the relative paths below resolve; override it on the command
+# line with `--root` if you keep the results elsewhere.
+root: /home/sylvain/svn/pypsa-eur_negawatt
+
+project:
+  name: négaWatt Belgium
+  subtitle: Energy transition pathways to 2050
+  website: https://www.negawatt.be/
+  decimals: 3
+
+model:
+  clusters: adm
+  opts: ""
+  sector_opts: 24h
+  planning_horizons: null      # discovered from results/<scenario>/networks/
+
+nodes:
+  detect: true
+  focus: BE                    # Belgium is the main region of interest
+  labels:
+    BE: Belgium
+    DE: Germany
+    FR: France
+    GB: Great Britain
+    NL: Netherlands
+  aggregate:
+    enabled: true
+    # The legacy tool called this "EU", which collides with the real PyPSA-Eur
+    # `EU` bus location (global oil/gas/coal buses). Kept here only so the
+    # output file names match the existing results/ref/htmls/EU_*.html.
+    # New projects should leave it at the default "ALL".
+    code: EU
+    label: 5 countries
+
+scenarios:
+  - name: ref
+    label: Reference
+    results_dir: results/ref
+    resources_dir: resources/ref
+  - name: suff
+    label: Sufficiency (négaWatt BE)
+    results_dir: results/suff
+    resources_dir: resources/suff
+
+landing:
+  scenario: ref
+  node: BE
+  page: overview
+
+output:
+  dir: results/pypsa2html
+  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  shared_maps: true
+  plotly: cdn
+
+plots:
+  ghg_cum_by_source: false
+  res_share: false
+  fec_by_origin: false
+  domestic_share: false
+  secondary_mix: false
