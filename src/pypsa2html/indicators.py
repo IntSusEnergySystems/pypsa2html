@@ -1,10 +1,9 @@
-"""The SEPIA flow algebra: from a long flow table to every derived indicator.
+"""The indicator flow algebra: from a long flow table to every derived indicator.
 
-This is the port of ``SEPIA.prepare_sepia`` (the graph construction, lines
-~101-434) and of the calculation half of ``SEPIA.generate_results`` (lines
-~450-640).  All HTML emission, all file writing and all ``snakemake`` access
-are gone; a builder asks for :func:`for_node` and gets an :class:`Indicators`
-object whose members are computed on first use.
+This is the port of the legacy graph-construction and results steps.  All HTML
+emission, all file writing and all ``snakemake`` access are gone; a builder
+asks for :func:`for_node` and gets an :class:`Indicators` object whose members
+are computed on first use.
 
 What the algebra does
 ---------------------
@@ -30,37 +29,37 @@ no mutable default arguments, no year literals -- horizons and their weights
 come from ``ctx``), the following confirmed defects are fixed here.  Each is
 marked ``FIX n`` at the point where it is repaired.
 
-FIX 1 -- ``SEPIA.py:287``.  Inside ``for en_code in ['amm','met']`` the loss
-    flow was written to the hardcoded target ``('met_fe', 'per', '')`` instead
-    of ``(en_code + '_fe', 'per', '')``.  The ammonia synthesis losses were
+FIX 1 -- Inside ``for en_code in ['amm','met']`` the loss flow was written to
+    the hardcoded target ``('met_fe', 'per', '')`` instead of
+    ``(en_code + '_fe', 'per', '')``.  The ammonia synthesis losses were
     therefore never created and the methanol ones were written twice (the
     second write being identical, so the symptom was silent).  The aggregate
-    branch (``SEPIA.py:295``) was the same statement without the loop and is
-    now looped as well, so ammonia behaves like methanol there too.
+    branch was the same statement without the loop and is now looped as well,
+    so ammonia behaves like methanol there too.
 
-FIX 2 -- ``SEPIA.py:570, 588, 597, 606``.  ``ren_bm = ['enc_pe']`` after
-    ``bm_columns = ['enc_pe']`` (and the same pattern for ``pac``, ``amm`` and
-    ``met``): the numerator list equalled the denominator list, so four of the
-    nine renewable-share ratios were 100% by construction, or NaN when the
-    carrier was absent.  The denominator is now *every* source that actually
-    feeds the carrier in the flow table, discovered rather than restated -- see
-    :data:`RENEWABLE_SHARES` and :class:`_CarrierMix`.
+FIX 2 -- ``ren_bm = ['enc_pe']`` after ``bm_columns = ['enc_pe']`` (and the
+    same pattern for ``pac``, ``amm`` and ``met``): the numerator list equalled
+    the denominator list, so four of the nine renewable-share ratios were 100%
+    by construction, or NaN when the carrier was absent.  The denominator is
+    now *every* source that actually feeds the carrier in the flow table,
+    discovered rather than restated -- see :data:`RENEWABLE_SHARES` and
+    :class:`_CarrierMix`.
 
-FIX 3 -- ``SEPIA_additional_functions.py`` ``cumul`` mutated
-    ``input_df.index`` in place, so the caller's frame silently changed dtype.
+FIX 3 -- the legacy ``cumul`` helper mutated ``input_df.index`` in place, so
+    the caller's frame silently changed dtype.
     :meth:`Indicators.ghg_sector_cum` never touches its input.
 
-FIX 4 -- ``SEPIA.py:635-642`` weighted the cumulative emissions with a literal
-    ``*= 10`` (the pypsa-wal fork bolted a ``*= 5`` on top for its 2025 base
-    year) and left the *first* horizon unweighted, so a four-horizon pathway
-    counted 31 years, not 40.  ``ctx.horizon_weights()`` now supplies one
-    weight per horizon, whatever the spacing.
+FIX 4 -- cumulative emissions were weighted with a literal ``*= 10`` (the
+    pypsa-wal fork bolted a ``*= 5`` on top for its 2025 base year) and left
+    the *first* horizon unweighted, so a four-horizon pathway counted 31
+    years, not 40.  ``ctx.horizon_weights()`` now supplies one weight per
+    horizon, whatever the spacing.
 
-FIX 5 -- ``SEPIA.py:200-207, 312-314, 173-174`` and ~15 similar places
-    addressed rows by the literals ``'2020' / '2030' / '2040' / '2050'``, which
-    made a 2035 horizon structurally impossible and silently left the base year
-    as NaN in the CO2 frame.  Every such block is now a vectorised expression
-    over the whole index.
+FIX 5 -- ~15 places addressed rows by the literals
+    ``'2020' / '2030' / '2040' / '2050'``, which made a 2035 horizon
+    structurally impossible and silently left the base year as NaN in the CO2
+    frame.  Every such block is now a vectorised expression over the whole
+    index.
 
 FIX 6 -- duplicate graph edges.  ``data/processes_energy.csv`` declares 130
     rows that share a ``(Source, Target, Type)`` triple with another row (13
@@ -94,7 +93,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Topology constants
 #
-# These lists describe the *shape* of the SEPIA graph rather than a per
+# These lists describe the *shape* of the energy-system graph rather than a per
 # technology value, so unlike colours or emission factors they are not a CSV
 # lookup.  They are stated once, here, instead of being spelled out inline in
 # twenty ``for en_code in [...]`` loops as in the original.
@@ -459,7 +458,7 @@ def _region_value(totals: pd.Series, node: str) -> float:
 def biomass_potential(ctx, node: str, years: Sequence[int]) -> pd.Series | None:
     """Domestic solid-biomass potential per horizon, in TWh/year.
 
-    Port of ``SEPIA.biomass_potentials``.  ``None`` when no potential file is
+    Port of the legacy biomass-potentials helper.  ``None`` when no potential file is
     available at all, in which case the caller keeps the model's own domestic
     production; a horizon whose file is missing (négaWatt ships none for its
     calibration year) yields NaN and is filled the same way.
@@ -523,7 +522,7 @@ def year_weights(ctx, years: Sequence[int]) -> pd.Series:
 def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     """Derive the flows the model does not report directly.
 
-    Port of ``SEPIA.prepare_sepia`` lines 153-296.  ``flows`` is modified and
+    Port of the legacy energy-graph closure.  ``flows`` is modified and
     returned; it is a frame this module built, never a caller's argument.
     """
     tax = ctx.taxonomy
@@ -554,7 +553,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     base_year = ctx.config.model.base_year
     if base_year is not None and base_year in years:
         # A calibration year taken from statistics has no modelled synthetic
-        # fuels, so all of its liquid demand is fossil.  ``SEPIA.py:172-174``
+        # fuels, so all of its liquid demand is fossil.  The legacy code
         # hardcoded this for 2020; pypsa-wal dropped it with its base year.
         flows.loc[base_year, ("pet_pe", "pet_fe", "")] = demand.loc[base_year]
 
@@ -663,7 +662,7 @@ def _close_carbon_graph(
 ) -> pd.DataFrame:
     """Derive the carbon flows the model does not report directly.
 
-    Port of ``SEPIA.prepare_sepia`` lines 297-379.  The per-year ``.loc['2030']
+    Port of the legacy carbon-graph closure.  The per-year ``.loc['2030']
     ... .loc['2050']`` chains are vectorised (FIX 5), which incidentally gives
     the base year a value where the négaWatt build left NaN.
     """
@@ -743,7 +742,7 @@ def _close_carbon_graph(
 
 @dataclass
 class Indicators:
-    """Every frame the SEPIA chart builders need, for one node.
+    """Every frame the indicator chart builders need, for one node.
 
     Members are :func:`functools.cached_property`, so a section switched off in
     the manifest costs nothing -- unlike the original, where the ``else:``
@@ -1016,7 +1015,7 @@ def for_node(ctx, node: str) -> Indicators | None:
     except (ImportError, AttributeError) as err:
         logger.warning(
             "the extraction layer does not provide energy_flows/carbon_flows "
-            "(%s); SEPIA sections will be skipped", err,
+            "(%s); indicator sections will be skipped", err,
         )
         energy = carbon = None
     except FileNotFoundError as err:
@@ -1024,7 +1023,7 @@ def for_node(ctx, node: str) -> Indicators | None:
         energy = carbon = None
 
     if energy is None or carbon is None:
-        logger.warning("no flow table for node %s; SEPIA sections will be skipped", node)
+        logger.warning("no flow table for node %s; indicator sections will be skipped", node)
     else:
         result = build(ctx, node, energy=energy, carbon=carbon)
 

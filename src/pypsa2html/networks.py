@@ -1,6 +1,6 @@
 """Lazy, cached access to solved PyPSA networks.
 
-Legacy SEPIA loaded *every* planning horizon into RAM up front (``load_files``,
+The legacy tool loaded *every* planning horizon into RAM up front (``load_files``,
 duplicated in four scripts) and then relied on ``del n; gc.collect()`` that
 freed nothing because the dict still held a reference.  This cache loads on
 first use and can be bounded, so a report over six horizons no longer needs

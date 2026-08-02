@@ -1,6 +1,6 @@
 """The build context -- the object that replaces the magic ``snakemake`` global.
 
-Legacy SEPIA read ``snakemake`` from three different scopes and carried a
+The legacy tool read ``snakemake`` from three different scopes and carried a
 further dozen values (``study``, ``countries``, ``loaded_files``, ``fn``,
 ``logo``, ``file_path``, ``planning_horizons``, ...) as module globals set in a
 ``__main__`` block.  Four of those globals were *rebound from a function to a
@@ -61,7 +61,7 @@ class BuildContext:
     def horizon_weights(self) -> pd.Series:
         """Years represented by each horizon, for cumulative sums.
 
-        Legacy SEPIA hardcoded ``*= 10`` for a decadal grid and left the first
+        The legacy tool hardcoded ``*= 10`` for a decadal grid and left the first
         horizon unweighted; the pypsa-wal fork bolted on ``*= 5``. Here the
         weight of each horizon is the gap to the next one, with the last
         horizon inheriting the previous gap.

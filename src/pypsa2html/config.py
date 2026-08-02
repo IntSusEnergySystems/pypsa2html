@@ -4,7 +4,7 @@ A pypsa2html run is fully described by one YAML file.  Defaults live in
 ``pypsa2html/data/default.yaml`` and are deep-merged with the user file, so a
 project config only states what differs.
 
-The legacy SEPIA tool spread its settings over four places -- a ``MAIN_PARAMS``
+The legacy tool spread its settings over four places -- a ``MAIN_PARAMS``
 sheet in an xlsx, ``config/plots.yaml``, hardcoded literals in ``__main__``
 blocks, and the Snakemake rule itself.  Everything that is genuinely a *choice*
 now lives here; everything that is a *taxonomy* (nodes, processes, carrier

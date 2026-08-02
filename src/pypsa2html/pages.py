@@ -1,6 +1,6 @@
 """The page manifest: what the report contains and in which order.
 
-Legacy SEPIA decided this in four unsynchronised places -- a hardcoded
+The legacy tool decided this in four unsynchronised places -- a hardcoded
 ``sections`` list, a substring test on the section title to pick the output
 file, a dict of pre-written ``<a href>`` strings, and prose keys in
 ``plots.yaml``.  Two pairs had already drifted apart in the shipped output, and
@@ -90,7 +90,7 @@ def load_manifest(
     """Load the manifest, apply per-section toggles and page selection.
 
     ``enable`` maps section ids to booleans and overrides the manifest default.
-    A key that matches no section is an error -- in legacy SEPIA a misspelled
+    A key that matches no section is an error -- in the legacy tool a misspelled
     ``plots.yaml`` key silently did nothing (and ``Cummulative``/``Comaprison``
     misspellings became load-bearing as a result).
     """

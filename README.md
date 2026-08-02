@@ -5,7 +5,7 @@ self-contained HTML report: Sankey diagrams, emissions, energy balances, costs,
 capacities, dispatch and maps — one set of pages per region, with a scenario
 switcher.
 
-It is a model-agnostic successor to the **SEPIA** scripts used in the négaWatt
+It is a model-agnostic successor to earlier reporting scripts used in the négaWatt
 PyPSA-Eur studies. Regions, planning horizons and navigation are *detected from
 the model* rather than hardcoded, so the same library serves a 5-country
 European study and a 3-region Belgian one without edits. See
@@ -188,7 +188,7 @@ pypsa2html/
 │   │   └── emissions.py             carbon flows
 │   ├── charts/                    tidy tables → plotly figures
 │   │   ├── base.py                  shared chart helpers
-│   │   ├── sankey.py  sepia.py      energy/carbon Sankeys, SEPIA indicators
+│   │   ├── sankey.py  indicators.py      energy/carbon Sankeys, indicator charts
 │   │   ├── results.py               costs, capacities, demands
 │   │   ├── dispatch.py  maps.py     time series, geographic maps
 │   │   └── scenario.py              multi-scenario overview
@@ -272,7 +272,7 @@ nine files by hardcoded path that Snakemake therefore could not track.
 | Config, nodes, taxonomy, manifest | `config` `nodes` `datafiles` `pages` `networks` `context` | done, tested |
 | Build loop, CLI, rendering | `build` `cli` `report` | done, tested |
 | Energy / carbon extraction | `extract/flows` `extract/emissions` | in progress |
-| Indicators, Sankeys, SEPIA charts | `indicators` `charts/base` `charts/sankey` `charts/sepia` | in progress |
+| Indicators, Sankeys, indicator charts | `indicators` `charts/base` `charts/sankey` `charts/indicators` | in progress |
 | Costs, capacities, demands | `charts/results` | not started |
 | Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | not started |
 
@@ -344,4 +344,4 @@ so they are not lost. Roughly in value order.
 
 ## License
 
-GPL-3.0-or-later, inherited from SEPIA. See [`NOTICE.md`](NOTICE.md).
+MIT. See [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md).

@@ -102,7 +102,7 @@ def test_aggregate_can_be_disabled():
 
 
 def test_aggregate_colliding_with_a_real_node_is_rejected():
-    """'EU' is a real PyPSA-Eur location as well as SEPIA's aggregate name."""
+    """'EU' is a real PyPSA-Eur location as well as the legacy aggregate name."""
     with pytest.raises(ValueError, match="collides with a real model node"):
         build_node_set(["BE", "EU"], aggregate_code="EU")
 

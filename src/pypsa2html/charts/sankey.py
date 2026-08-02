@@ -1,8 +1,8 @@
 """Sankey diagrams of the energy and carbon graphs.
 
 The legacy code had *three* copies of this function --
-``SEPIA_functions.create_sankey``, ``SEPIA_additional_functions.create_sankey``
-and ``SEPIA_additional_functions.create_carbon_sankey``.  They differed in five
+the legacy ``create_sankey``, the legacy ``create_sankey``
+and the legacy ``create_carbon_sankey``.  They differed in five
 lines: the value suffix, the node padding, whether the year index was cast to
 ``int``, which band annotations were drawn, and (in ``sf``'s copy only) whether
 the year lookup used ``year`` or ``str(year)``.  Everything else, including two

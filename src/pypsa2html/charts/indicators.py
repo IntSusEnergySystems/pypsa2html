@@ -1,22 +1,10 @@
-"""The SEPIA chart builders named in ``data/pages.yaml``.
+"""Indicator chart builders named in ``data/pages.yaml``.
 
 Each function has the signature ``docs/INTERNALS.md`` section 4 defines --
 ``(ctx, node, section) -> Figure | Html | None`` -- and each one is reached
-only when the manifest lists its section.  In the original every one of these
-charts was built twice: once in the ``if sepia_plots[...]`` branch, and once in
-the ``else:`` branch, which built the identical figure, wrote its data to the
-workbook, and dropped the result on the floor.  Switching a chart off therefore
-cost exactly as much as leaving it on -- and often more, because the disabled
-branch also desynchronised the ``id_section`` counter that chose the heading.
-
-Section identity is now the manifest's business.  ``SEPIA.py:664-666`` assigned
-sections to pages by testing the *title* for the substrings ``"CO2"``,
-``"emissions"``, ``"Sankey"``, ``"Final energy consumption"`` and ``"carrier"``,
-so "Renewable energy share", "Share of domestic production" and "Mix of
-secondary energies" matched nothing, rendered, and appeared in no table of
-contents.  ``SEPIA.py:656`` then gave four different sections the same anchor
-``'ghg'``, so three of the four links were dead.  Both are gone: the manifest's
-unique ``id`` is the anchor, and the page it sits on is where it renders.
+only when the manifest lists its section.  Section identity is the manifest's
+business: the unique ``id`` is the anchor, and the page it sits on is where it
+renders.
 """
 
 from __future__ import annotations

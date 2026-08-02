@@ -53,7 +53,7 @@ class BuildReport:
 def resolve_builder(dotted: str):
     """Resolve a manifest ``builder`` string to a callable.
 
-    ``"sepia.fec_by_sector"`` -> ``pypsa2html.charts.sepia.fec_by_sector``.
+    ``"indicators.fec_by_sector"`` -> ``pypsa2html.charts.indicators.fec_by_sector``.
     Returns ``None`` (with a warning) when the module or attribute is absent,
     so a partially implemented manifest still renders.
     """

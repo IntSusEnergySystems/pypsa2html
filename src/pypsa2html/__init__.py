@@ -5,7 +5,7 @@ Typical use::
     from pypsa2html import load_config, build_site
     build_site(load_config("config/my-model.yaml"))
 
-The package is a restructured, model-agnostic successor to the SEPIA scripts
+The package is a restructured, model-agnostic successor to the legacy reporting scripts
 used in the négaWatt PyPSA-Eur studies.  See ``docs/DESIGN_DECISIONS.md`` for
 what changed and why.
 """

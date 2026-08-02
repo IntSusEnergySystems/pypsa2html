@@ -26,7 +26,7 @@ nodes:
   exclude: []           # subtracted from the detected list
   labels: {}            # {BEWAL: Wallonia} -- display names for the dropdown
   focus: null           # main region; null = first node. Drives the landing page.
-  resolution: location  # 'location' (robust) or 'substring' (legacy SEPIA)
+  resolution: location  # 'location' (robust) or 'substring' (the legacy tool)
   aggregate:
     enabled: true
     code: ALL           # NOT "EU": that is a real PyPSA-Eur bus location

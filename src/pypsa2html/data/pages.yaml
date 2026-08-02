@@ -1,6 +1,6 @@
 # Page manifest -- the single source of truth for what the report contains.
 #
-# In legacy SEPIA the same logical chart was named four different ways: a
+# In the legacy tool the same logical chart was named four different ways: a
 # prose key in config/plots.yaml ("Cummulative Emissions"), an HTML anchor
 # ("#ghg"), an html_texts slug ("CO2_emissions_sector") and a literal in a
 # hardcoded `sections` list.  Keeping them in sync was manual and two pairs had
@@ -33,10 +33,10 @@ pages:
   - id: emissions
     title: Emissions
     sections:
-      - {id: ghg_by_sector,          title: CO2 emissions by sector,             builder: sepia.ghg_by_sector,            unit: MtCO2eq}
-      - {id: ghg_by_source,          title: CO2 emissions by source,             builder: sepia.ghg_by_source,            unit: MtCO2eq}
-      - {id: ghg_cum_by_sector,      title: Cumulative CO2 emissions by sector,  builder: sepia.ghg_cumulative_by_sector, unit: MtCO2eq}
-      - {id: ghg_cum_by_source,      title: Cumulative CO2 emissions by source,  builder: sepia.ghg_cumulative_by_source, unit: MtCO2eq, enabled: false}
+      - {id: ghg_by_sector,          title: CO2 emissions by sector,             builder: indicators.ghg_by_sector,            unit: MtCO2eq}
+      - {id: ghg_by_source,          title: CO2 emissions by source,             builder: indicators.ghg_by_source,            unit: MtCO2eq}
+      - {id: ghg_cum_by_sector,      title: Cumulative CO2 emissions by sector,  builder: indicators.ghg_cumulative_by_sector, unit: MtCO2eq}
+      - {id: ghg_cum_by_source,      title: Cumulative CO2 emissions by source,  builder: indicators.ghg_cumulative_by_source, unit: MtCO2eq, enabled: false}
 
   - id: sankeys
     title: Sankey diagrams
@@ -47,12 +47,12 @@ pages:
   - id: fec
     title: Energy consumption
     sections:
-      - {id: res_share,              title: Renewable energy share,                          builder: sepia.renewable_share,      unit: '%',        enabled: false}
-      - {id: fec_by_origin,          title: Final energy consumption by origin,              builder: sepia.fec_by_origin,        unit: TWh/year,   enabled: false}
-      - {id: domestic_share,         title: Share of domestic production,                    builder: sepia.domestic_share,       unit: '%',        enabled: false}
-      - {id: fec_by_sector,          title: Final energy consumption by each sector,         builder: sepia.fec_by_sector,        unit: TWh/year}
-      - {id: secondary_mix,          title: Mix of secondary energies,                       builder: sepia.secondary_mix,        unit: TWh/year,   enabled: false}
-      - {id: fec_by_carrier,         title: Final energy consumption by carrier per sector,  builder: sepia.fec_by_carrier,       unit: TWh/year}
+      - {id: res_share,              title: Renewable energy share,                          builder: indicators.renewable_share,      unit: '%',        enabled: false}
+      - {id: fec_by_origin,          title: Final energy consumption by origin,              builder: indicators.fec_by_origin,        unit: TWh/year,   enabled: false}
+      - {id: domestic_share,         title: Share of domestic production,                    builder: indicators.domestic_share,       unit: '%',        enabled: false}
+      - {id: fec_by_sector,          title: Final energy consumption by each sector,         builder: indicators.fec_by_sector,        unit: TWh/year}
+      - {id: secondary_mix,          title: Mix of secondary energies,                       builder: indicators.secondary_mix,        unit: TWh/year,   enabled: false}
+      - {id: fec_by_carrier,         title: Final energy consumption by carrier per sector,  builder: indicators.fec_by_carrier,       unit: TWh/year}
 
   - id: demands
     title: Demands

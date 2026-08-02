@@ -38,7 +38,7 @@ PYTHONPATH=src python -m pypsa2html.cli build -c config/negawatt.yaml -s ref -o 
 | Config, nodes, taxonomy, manifest, context, networks | — | **done**, tested |
 | Build loop, CLI, rendering, navigation | — | **done**, tested |
 | Energy / carbon extraction | `extract/flows.py`, `extract/emissions.py` | **done**, needs review + tests |
-| Indicators, Sankeys, SEPIA charts | `indicators.py`, `charts/{base,sankey,sepia}.py` | **done**, needs tests |
+| Indicators, Sankeys, indicator charts | `indicators.py`, `charts/{base,sankey,indicators}.py` | **done**, needs tests |
 | Costs, capacities, demands | `charts/results.py` | **T1 — not started** |
 | Multi-scenario overview | `charts/scenario.py` | **T2 — not started** |
 | Dispatch time series | `charts/dispatch.py` | **T3 — not started** |
@@ -61,7 +61,7 @@ for p in load_manifest():
 
 **Highest value: it unblocks T2, which reuses the same tables.**
 
-**Source:** `/home/sylvain/svn/pypsa-eur_negawatt/SEPIA/Pypsa_results.py`
+**Source:** `/home/sylvain/svn/pypsa-eur_negawatt/…/Pypsa_results.py`
 - `costs` (line 336), `clustered_costs` (474), `Investment_costs` (505),
   `operational_costs` (628), `capacities` (798), `storage_capacities` (890),
   `plot_demands` (928)
@@ -70,7 +70,7 @@ for p in load_manifest():
   `create_operational_costs` (2906), `create_capacity_chart` (2965),
   `storage_capacity_chart` (3043)
 
-Also read the fork `/home/sylvain/svn/pypsa-wal/SEPIA/Pypsa_results.py` — it
+Also read the fork `/home/sylvain/svn/pypsa-wal/…/Pypsa_results.py` — it
 drops the transmission-cost layer and the historical base-year merge, both of
 which must become **optional** rather than deleted.
 
@@ -137,7 +137,7 @@ vendored under `tests/data/negawatt-ref/country_csvs/`. Compare against
 
 The landing page. Depends on T1's `extract/tables.py`.
 
-**Source:** `/home/sylvain/svn/pypsa-eur_negawatt/SEPIA/scenario_results.py`
+**Source:** `/home/sylvain/svn/pypsa-eur_negawatt/…/scenario_results.py`
 (1686 lines). The pypsa-wal fork (1008 lines) is the better starting point for
 *structure* — it already refactored every plot from two hardcoded frames
 (`*_ref`, `*_suff`) to a loop over N scenarios, which is exactly what is needed.
@@ -346,7 +346,7 @@ pypsa2html build -c config/negawatt.yaml -s ref -o /tmp/p2h-ref
 
 ---
 
-## T8 — Retire `pypsa-wal/SEPIA/`
+## T8 — Retire the legacy report scripts in `pypsa-wal`
 
 **Only once T1–T4 render real charts for `config/pypsa-wal.yaml`.**
 
@@ -354,17 +354,17 @@ pypsa2html build -c config/negawatt.yaml -s ref -o /tmp/p2h-ref
    placeholders in the end-of-run summary.
 2. Copy `examples/snakemake/pypsa2html.smk` into `pypsa-wal/rules/`, add
    `include: "rules/pypsa2html.smk"` to the `Snakefile`.
-3. Delete the `prepare_sepia`, `generate_sepia`, `prepare_results` and
-   `prepare_dispatch_plots` rules from `pypsa-wal/rules/postprocess.smk`
-   (~lines 615–750), and the `countries` / `STUDY` / `study_dir` helpers above
-   them if nothing else uses them.
-4. `git rm -r pypsa-wal/SEPIA/`.
+3. Delete the superseded postprocess rules that built the old HTML report
+   (`prepare_results`, `prepare_dispatch_plots`, and any remaining report
+   generation rules) from `pypsa-wal/rules/postprocess.smk`, and the
+   `countries` / `STUDY` / `study_dir` helpers above them if nothing else uses
+   them.
+4. Remove the superseded legacy report directory from `pypsa-wal`.
 5. Update `pypsa-wal/instructions.md` — the **HTML report (pypsa2html)** section
    already exists; remove the "still present but superseded" note and the
-   `SEPIA/` line from the repository-layout tree.
+   legacy report directory from the repository-layout tree.
 
-Note those rules are already unrunnable: they declare `SEPIA/SEPIA_config.xlsx`,
-`SEPIA/COUNTRIES.xlsx` and `SEPIA/Template/pypsa.html` as inputs, and all three
+Note those rules are already unrunnable: they declare the legacy config workbook, countries table and HTML template as inputs, and all three
 were caught by the `*.xlsx` / `*.html` patterns in `.gitignore` and never
 committed.
 
@@ -399,7 +399,7 @@ marked with a comment at the relevant point in the code.
 5. **28 energy-Sankey edges reference placeholder codes** (`afzf`, `dfdfg`,
    `fzafz`, `zr`, `lll`, …) — mostly transformation-loss arcs for CHP,
    waste-to-energy, geothermal and solar thermal. Those links have never
-   rendered in any SEPIA run. Supplying the right code per arc is a modelling
+   rendered in any legacy run. Supplying the right code per arc is a modelling
    decision. See `VALIDATION.md` §A1. Also 17 carbon-Sankey edges reference
    codes no mapping can emit (§A3).
 6. **`prohydclamm` is produced by two entries** (`NH3` and `Haber-Bosch_4`),

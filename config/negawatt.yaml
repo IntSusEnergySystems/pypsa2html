@@ -1,6 +1,6 @@
 # négaWatt Belgium study (PyPSA-Eur, repo: pypsa-eur_negawatt).
 #
-# Reproduces the report the legacy SEPIA scripts produced from
+# Reproduces the report the legacy scripts produced from
 # `results/{ref,suff}`. Run from the pypsa-eur_negawatt repository root:
 #
 #     pypsa2html build --config /path/to/pypsa2html/config/negawatt.yaml

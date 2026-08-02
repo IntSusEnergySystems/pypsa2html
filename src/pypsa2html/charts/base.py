@@ -1,14 +1,14 @@
 """Shared chart machinery: figures, the variant dropdown, the data workbook.
 
 This merges four near-identical legacy helpers into one implementation:
-``SEPIA_functions.create_node_chart`` (area and line),
-``SEPIA_additional_functions.create_ghg_chart`` (area with signed
+the legacy ``create_node_chart`` (area and line),
+the legacy ``create_ghg_chart`` (area with signed
 stackgroups) and the two ``combine_charts`` functions -- which had *different
 signatures*, ``sf``'s being ``(combinations, main_params, description, title,
 chart_type, xls_writer, unit, ...)`` and ``saf``'s
 ``(combinations, main_params, description, title, chart_type, xls_writer,
-interval_year, unit, ...)``.  Eight call sites in ``SEPIA.py:714-737`` passed
-the unit as the seventh positional argument, which reached ``saf`` as
+interval_year, unit, ...)``.  Eight call sites in the legacy code passed the
+unit as the seventh positional argument, which reached ``saf`` as
 ``interval_year``: the four emission charts were labelled ``TWh/year`` in the
 shipped ``ChartData_*.xlsx`` and their Sankey-style slider stepped every
 ``'MtCO<sub>2</sub>eq'`` years.  Everything here is keyword-only past the

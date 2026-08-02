@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Turn solved PyPSA(-Eur) networks into a navigable HTML report"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { text = "MIT" }
 authors = [
     { name = "Sylvain Quoilin", email = "squoilin@ulg.ac.be" },
 ]
@@ -16,7 +16,7 @@ keywords = ["pypsa", "energy-system", "visualisation", "sankey", "report"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "License :: OSI Approved :: MIT License",
 ]
 
 # Minimum runtime requirements.  These cover the config, taxonomy, extraction

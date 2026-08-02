@@ -1,7 +1,7 @@
 """Loaders for the packaged taxonomy data.
 
 The legacy tool kept its energy-system vocabulary in a binary
-``SEPIA_config.xlsx``.  That made review, diffing and merging impossible, and a
+``the legacy config workbook``.  That made review, diffing and merging impossible, and a
 typo in a node code produced a silently missing Sankey link rather than an
 error.  The same tables now ship as CSVs under ``pypsa2html/data/`` and are
 validated on load.
@@ -84,7 +84,7 @@ class Taxonomy:
     def codes_of_type(self, node_type: str) -> list[str]:
         """Node codes whose ``Type`` equals ``node_type``.
 
-        Replaces ``SEPIA_functions.nodes_by_type``.  Unlike the original this
+        Replaces the legacy ``nodes_by_type``.  Unlike the original this
         raises on an unknown type instead of quietly returning ``[]``.
         """
         if node_type not in NODE_TYPES:
@@ -170,7 +170,7 @@ def _validate(tax: Taxonomy) -> None:
         if len(blank):
             raise TaxonomyError(
                 f"{name}.csv: {len(blank)} row(s) have an empty 'code'. In legacy "
-                "SEPIA these silently collapsed into one blank row; they are now "
+                "the legacy tool these silently collapsed into one blank row; they are now "
                 f"an error. Offending entries: {table.loc[blank, 'entry'].tolist()}"
             )
 

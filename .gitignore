@@ -30,4 +30,4 @@ tests/**/_generated/
 
 # NOTE: tests/data/ IS tracked on purpose -- it is the vendored negawatt
 # reference dataset. Do not add a blanket *.csv / *.xlsx ignore here; that is
-# exactly how pypsa-wal lost its SEPIA_config.xlsx and COUNTRIES.xlsx.
+# exactly how pypsa-wal lost its legacy config workbook and COUNTRIES.xlsx.

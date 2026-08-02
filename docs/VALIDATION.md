@@ -1,4 +1,4 @@
-# Validation against the legacy SEPIA output
+# Validation against legacy output
 
 How `pypsa2html` compares to the output already in
 `pypsa-eur_negawatt/results/ref/htmls/`, and every difference that is
@@ -21,8 +21,9 @@ solved 2026-06-02. The tabular outputs are vendored under
 
 ## A. Defects found in the *configuration data*
 
-These were latent in `SEPIA_config.xlsx` and are independent of any code
-change. Pinned by `tests/test_taxonomy_integrity.py` so they cannot get worse.
+These were latent in the legacy configuration workbook and are independent of
+any code change. Pinned by `tests/test_taxonomy_integrity.py` so they cannot
+get worse.
 
 ### A1 — 28 energy-Sankey edges reference placeholder codes ❗
 
@@ -37,7 +38,7 @@ lll  llll  scvqs  sfqf  zfazfa  zfzf  zr
 
 They are mostly transformation-loss arcs for CHP plants, waste-to-energy,
 geothermal and solar thermal. **Those links have silently never rendered in any
-SEPIA run**, so the energy Sankey has been missing loss flows for those
+legacy run**, so the energy Sankey has been missing loss flows for those
 technologies throughout.
 
 Not fixed here: supplying the right code for each arc is a modelling decision,
@@ -94,13 +95,13 @@ cause. Status is tracked as the port lands.
 
 | # | Where | Defect | Effect on output |
 |---|---|---|---|
-| B1 | `SEPIA.py:287` | Inside `for en_code in ['amm','met']` the write target is hardcoded `('met_fe','per','')` instead of `(en_code+'_fe','per','')` | The ammonia loss flow was never created; the methanol one was written twice. Both change. |
+| B1 | indicator graph closure | Inside `for en_code in ['amm','met']` the write target is hardcoded `('met_fe','per','')` instead of `(en_code+'_fe','per','')` | The ammonia loss flow was never created; the methanol one was written twice. Both change. |
 | B2 | `excel_generator.py:348` | `_2`/`_3` label suffixing is applied *after* threshold filtering, so `'CCGT_2'` means "the second surviving CCGT row" | If the primary row fell below 0.1 TWh, a losses value was written into a generation code. Affects small regions most — i.e. pypsa-wal. |
 | B3 | `excel_generator.py:342` | `value >= 0.1` filter | Deleted every negative value, so net-negative CO2 rows vanished entirely. Now filtered on magnitude. |
 | B4 | `excel_generator.py:208` | `total_e{i}` / `carrier_bus{i}` written onto the cached network and never removed | Contaminated the next call; the `EU` pass ran last and unfiltered, so EU losses were wrong for the affected links. |
-| B5 | `SEPIA.py:714-737` | Unit passed as the 7th positional argument, landing in `interval_year` because the two `combine_charts` had different signatures | GHG chart-data sheets were labelled "(TWh/year)" instead of MtCO2eq. Cosmetic but wrong. |
-| B6 | `SEPIA.py:570,588,597,606` | `ren_bm == bm_columns` etc — numerator equals denominator | Four renewable-coverage ratios were always 100% or NaN. |
-| B7 | `SEPIA.py:31/39` | `if planning_horizon != 2020` made the `== 2020` branch unreachable | The 2020 biomass row stayed NaN and propagated into the biomass export flow permanently. |
+| B5 | chart helpers | Unit passed as the 7th positional argument, landing in `interval_year` because the two `combine_charts` had different signatures | GHG chart-data sheets were labelled "(TWh/year)" instead of MtCO2eq. Cosmetic but wrong. |
+| B6 | renewable-share ratios | `ren_bm == bm_columns` etc — numerator equals denominator | Four renewable-coverage ratios were always 100% or NaN. |
+| B7 | biomass potential | `if planning_horizon != 2020` made the `== 2020` branch unreachable | The 2020 biomass row stayed NaN and propagated into the biomass export flow permanently. |
 | B8 | `Pypsa_results.py:917` | Save loop nested inside the country loop *and* rebinding `country` | Every capacity CSV rewritten O(n²) times; last writer wins. |
 | B9 | `Pypsa_results.py:1717` | `plot_map` never used its `country` argument | Six byte-identical 21.7 MB map files per scenario. Now one shared page (D8). |
 | B10 | `Pypsa_results.py:2563` | `create_H2_map_plots` overwrote its own `planning_horizons` argument with `[2030,2040,2050]` | Wrong horizons on the H2 map for any other grid — e.g. pypsa-wal's 2025. |

@@ -32,7 +32,7 @@ if HAVE_PYPSA2HTML:
     rule generate_html_report:
         """Build the interactive HTML report from the solved networks.
 
-        Unlike the SEPIA rules this replaces, every file read is declared
+        Unlike the legacy rules this replaces, every file read is declared
         here. The originals declared nine inputs of which four were never
         read, and read a further nine by hardcoded path that Snakemake could
         therefore neither track nor clean.

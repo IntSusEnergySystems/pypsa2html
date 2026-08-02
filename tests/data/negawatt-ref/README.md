@@ -8,7 +8,7 @@ horizons 2030/2040/2050 (plus a 2020 historical column), solved 2026-06-02.
 
 | Path | What it is | Produced by |
 |---|---|---|
-| `flows/{BE,EU}_energy.csv` | Energy flow table, TWh/year | `results/ref/sepia/inputs{NODE}.xlsx`, sheet `Inputs` |
+| `flows/{BE,EU}_energy.csv` | Energy flow table, TWh/year | `results/ref/report/inputs{NODE}.xlsx`, sheet `Inputs` |
 | `flows/{BE,EU}_carbon.csv` | Carbon flow table, MtCO2/year | same file, sheet `Inputs_co2` |
 | `country_csvs/*.csv` | Per-node cost, capacity and demand tables | `results/ref/country_csvs/` |
 

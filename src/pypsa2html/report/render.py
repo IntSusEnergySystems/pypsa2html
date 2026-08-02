@@ -34,7 +34,7 @@ def figure_to_html(fig, *, plotly: str = "cdn", first_on_page: bool = False) -> 
     """Serialise a plotly figure to an embeddable fragment.
 
     The plotly bundle is emitted at most once per page (by the template for
-    ``cdn``, by the first figure for ``inline``).  Legacy SEPIA passed
+    ``cdn``, by the first figure for ``inline``).  The legacy tool passed
     ``include_plotlyjs='cdn'`` on every call, so a costs page loaded the 3 MB
     bundle five times.
     """
@@ -68,7 +68,7 @@ class RenderedSection:
 def missing_section(section, reason: str) -> RenderedSection:
     """Placeholder for a section whose inputs were unavailable.
 
-    Legacy SEPIA raised ``NameError`` from the page-assembly code whenever a
+    The legacy tool raised ``NameError`` from the page-assembly code whenever a
     chart was switched off or its input file was missing.  A visible, named
     placeholder is more useful than a crash and than a silent gap.
     """

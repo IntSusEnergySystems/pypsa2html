@@ -1,6 +1,6 @@
 # Design decisions
 
-Every non-obvious choice made while turning the SEPIA scripts into
+Every non-obvious choice made while turning the legacy reporting scripts into
 `pypsa2html`, with the alternatives and why they lost. If one of these turns
 out to be wrong, this file is where to start unwinding it.
 
@@ -58,7 +58,7 @@ comparison against legacy output.
 **Decided.** Default `nodes.aggregate.code: ALL`.
 
 `EU` is a *real* PyPSA-Eur bus location — the global oil, gas, coal and biomass
-buses live there. SEPIA also used `EU` as the name of the sum-of-all-regions
+buses live there. The legacy tool also used `EU` as the name of the sum-of-all-regions
 aggregate, so the string meant two different things and the code special-cased
 `country == 'EU'` to mean "do not filter" in ~120 places.
 
@@ -103,7 +103,7 @@ one, so 2025/2030/2040/2050 yields 5/10/10/10 with no special-casing, and a
 simultaneously the HTML anchor, the `plots:` toggle key and the `texts:`
 narrative key.
 
-Legacy SEPIA maintained four namespaces by hand: prose keys in `plots.yaml`
+The legacy tool maintained four namespaces by hand: prose keys in `plots.yaml`
 (`"Cummulative Emissions"` — the misspelling was load-bearing), HTML anchors
 (`#ghg`, reused for four different sections), `html_texts` slugs, and literal
 titles in a hardcoded `sections` list. Two pairs had already drifted apart in
@@ -143,7 +143,7 @@ removes the escaping landmine that forced every TOC entry to use single-quoted
 
 **Decided.** Extraction returns a DataFrame straight to the chart layer.
 
-SEPIA wrote `results/<study>/sepia/inputs<NODE>.xlsx` and read it back in the
+The legacy tool wrote `results/<study>/report/inputs<NODE>.xlsx` and read it back in the
 next rule, with the reader hardcoding `usecols="C:G"` — exactly four year
 columns. Adding a horizon silently truncated the data.
 
@@ -256,9 +256,9 @@ work.
 **Decided.** Correct the confirmed bugs, and treat validation as "numerically
 equivalent except for a documented list" rather than `diff`.
 
-The analysis found 28 confirmed bugs in `SEPIA.py` alone. Several change
-numbers — for example `SEPIA.py:287` wrote the ammonia loss flow into the
-methanol slot, and `excel_generator.py`'s `_2`/`_3` label suffixing meant
+The analysis found 28 confirmed bugs in the legacy code alone. Several change
+numbers — for example the ammonia loss flow was written into the methanol
+slot, and `excel_generator.py`'s `_2`/`_3` label suffixing meant
 `'CCGT_2'` denoted "the second row labelled CCGT that survived threshold
 filtering", so in a small region a losses value could land in a generation
 code.
@@ -297,7 +297,7 @@ rendering the same way.
 
 ## D14 — Scope: the HTML pipeline only
 
-**Decided.** Port extraction, the SEPIA indicator/Sankey pages, the
+**Decided.** Port extraction, the indicator/Sankey pages, the
 cost/capacity/demand/dispatch/map pages and the multi-scenario overview.
 
 Left behind: `sensitivity_results.py`, `sensitivity_scenario.py`,

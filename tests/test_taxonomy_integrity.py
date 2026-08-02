@@ -2,8 +2,8 @@
 
 These use the vendored négaWatt run as ground truth for "codes a real model
 actually produces". They pin known-bad counts rather than asserting zero,
-because the underlying defects are inherited from SEPIA_config.xlsx and fixing
-them is a domain decision -- see docs/VALIDATION.md.
+because the underlying defects are inherited from the legacy config workbook and
+fixing them is a domain decision -- see docs/VALIDATION.md.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def producible_codes(tax) -> set[str]:
 def test_carbon_sankey_dead_edges_do_not_increase(tax, producible_codes):
     """17 carbon-Sankey edges reference a code no mapping can produce.
 
-    Inherited from SEPIA_config.xlsx. Unlike the energy-Sankey placeholders
+    Inherited from the legacy config workbook. Unlike the energy-Sankey placeholders
     these are plausibly-named (`emmcoalchp`, `emmrail`, ...), so they look like
     features that were specified but never implemented rather than typos.
     """
@@ -93,7 +93,7 @@ def test_both_carrier_spellings_of_the_ev_charger_are_mapped(tax):
 def test_energy_sankey_placeholder_codes_do_not_increase(tax, produced_codes):
     """~28 energy-Sankey edges reference keyboard-mash placeholder codes.
 
-    Inherited from SEPIA_config.xlsx: those links have never rendered in any
+    Inherited from the legacy config workbook: those links have never rendered in any
     run. Not removed here because deleting a Sankey edge is a modelling
     decision. This test stops the count growing.
     """

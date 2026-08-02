@@ -8,7 +8,7 @@ keeps the physics and replaces the bookkeeping.
 
 The deterministic entry key
 ---------------------------
-Legacy SEPIA numbered same-carrier rows with :func:`generate_new_label`: the
+The legacy tool numbered same-carrier rows with :func:`generate_new_label`: the
 first *surviving* row labelled ``CCGT`` became ``CCGT``, the second ``CCGT_2``
 and so on.  "Surviving" meant *after* the ``value >= 0.1`` filter, so if a
 country's CCGT fleet generated less than 0.1 TWh the transformation-losses row
@@ -65,7 +65,7 @@ from ..nodes import PSEUDO_LOCATIONS
 
 logger = logging.getLogger(__name__)
 
-#: PyPSA works in MWh, SEPIA in TWh.
+#: PyPSA works in MWh, the report in TWh.
 MWH_PER_TWH = 1.0e6
 
 #: Pseudo bus carrier for the residual of a link's energy balance.
@@ -330,7 +330,7 @@ def _load_flows(
     """Demand rows: ``bus carrier -> "<carrier> demand"``.
 
     ``rail`` is netted out of the generic electricity load because the model
-    folds rail traction into it while SEPIA reports it separately (see
+    folds rail traction into it while the legacy tool reports it separately (see
     :func:`_rail_demand`); leaving it in would double-count.
     """
     index = _select(ctx, network, node, "loads", horizon)

@@ -4,7 +4,7 @@ A *node* is a spatial unit of the model that gets its own set of HTML pages.
 In PyPSA-Eur this is whatever the clustering produced: a country code (``BE``),
 an administrative region (``BEWAL``), or a numbered cluster (``BE1 0``).
 
-The legacy SEPIA code decided node membership with
+The legacy code decided node membership with
 ``component_names.filter(like=country)`` -- a case-sensitive substring match on
 the *component name*.  That is fragile: ``filter(like="BE")`` also matches
 ``BEWAL``, and it silently depends on node codes never being prefixes of one
@@ -160,7 +160,7 @@ class NodeResolver:
         components, ``bus0`` for links and lines).  Correct and unambiguous.
 
     ``substring``
-        Reproduce the legacy SEPIA behaviour -- case-sensitive substring match
+        Reproduce the legacy behaviour -- case-sensitive substring match
         on the component *name*.  Only for byte-comparison against old output.
     """
 
