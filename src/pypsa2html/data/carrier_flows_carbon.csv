@@ -69,3 +69,5 @@ biogas to gas CC3,biogas to gas CC,MtCO2,emmbiogasccc
 naphtha for industry,naphtha for industry,MtCO2,emmoil
 fossil gas,fossil gas,MtCO2,emmfossgas
 Non-energy GHG Agriculture,Non-energy GHG Agriculture,MtCO2,emmghgagri
+oil plants,oil plants,MtCO2,emoilppatm
+industry methanol,industry methanol,MtCO2,emindmetatm

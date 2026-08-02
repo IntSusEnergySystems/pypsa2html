@@ -168,3 +168,7 @@ urban decentral biomass boiler,Residential and tertiary biomass for heating,TWh,
 rural biomass boiler,rural biomass boiler,TWh,presenccfres
 urban decentral resistive heater,urban decentral resistive heater,TWh,preehplx
 biomass to liquid_2,biomass to liquid losses,TWh,probmliqlos
+BioSNG CC,BioSNG CC,TWh,probiosngcc
+BioSNG CC_2,BioSNG CC losses,TWh,probiosnglosscc
+BEV charger,BEV charging,TWh,prebev
+BEV charger_2,BEV charging losses,TWh,prebevloss
