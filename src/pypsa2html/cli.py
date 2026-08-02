@@ -91,7 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         manifest = load_manifest(enable=config.plots, include_pages=config.output.pages)
         print(f"project   : {config.project.name}")
         print(f"root      : {config.root}")
-        print(f"output    : {config.output_dir()}")
+        if config.output_is_per_scenario:
+            print(f"output    : {config.output.dir}  (one folder per scenario)")
+            print(f"entry     : {config.common_output_root() / 'index.html'}")
+        else:
+            print(f"output    : {config.output_dir()}")
         print(f"landing   : {config.landing.node or config.nodes.focus} / "
               f"{config.landing_scenario.name} / {config.landing.page}")
         for scenario in config.scenarios:
@@ -102,6 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"    UNAVAILABLE: {exc}")
                 continue
             print(f"    results  : {ctx.results_dir}")
+            print(f"    html     : {config.output_dir(scenario.name)}")
             print(f"    horizons : {ctx.horizons}")
             print(f"    nodes    : {', '.join(f'{n.code}({n.label})' for n in ctx.nodes)}")
             print(f"    focus    : {ctx.nodes.focus}")
