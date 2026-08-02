@@ -11,6 +11,7 @@ from pypsa2html.charts.base import (
     apply_tech_map,
     normalize_carrier,
     omit_carriers,
+    resolve_tech_color,
     tech_color_map,
 )
 from pypsa2html.datafiles import TECH_VIEWS, load_taxonomy, load_tech_groups
@@ -66,6 +67,31 @@ def test_tech_color_map_is_a_copy():
     assert a == b
     a["AC Transmission"] = "#000000"
     assert b["AC Transmission"] == "#ff3030"
+
+
+def test_storage_display_names_have_distinct_colors():
+    """Renamed storage labels must not collapse to the same grey fallback."""
+    palette = tech_color_map()
+    names = [
+        "Thermal Energy Storage",
+        "Grid-scale battery",
+        "Gas storage",
+        "EV battery",
+        "H2 Store",
+    ]
+    colors = [resolve_tech_color(n, palette) for n in names]
+    assert "lightgrey" not in colors
+    assert len(set(colors)) == len(names)
+
+
+def test_resolve_tech_color_case_and_unknown_fallback():
+    palette = tech_color_map()
+    assert resolve_tech_color("thermal energy storage", palette) == palette[
+        "Thermal Energy Storage"
+    ]
+    unknown = resolve_tech_color("totally-unknown-tech-xyz", palette)
+    assert unknown.startswith("#")
+    assert unknown != "lightgrey"
 
 
 def test_tech_views_are_complete(tech_groups):

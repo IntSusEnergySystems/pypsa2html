@@ -8,7 +8,14 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from ..extract.balance import dispatch_window, energy_balance
-from .base import CHART_HEIGHT, FONT_SIZE, combine_charts, strip_markup, tech_color_map
+from .base import (
+    CHART_HEIGHT,
+    FONT_SIZE,
+    combine_charts,
+    resolve_tech_color,
+    strip_markup,
+    tech_color_map,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +87,7 @@ def _stacked_area(
     legend_shown: set[str] = set()
 
     for col in data.columns:
+        color = resolve_tech_color(str(col), colors)
         pos = positive[col]
         if (pos != 0).any():
             fig.add_trace(
@@ -88,7 +96,7 @@ def _stacked_area(
                     y=pos,
                     name=col,
                     mode="lines",
-                    line={"width": 0.5, "color": colors.get(col, "black")},
+                    line={"width": 0.5, "color": color},
                     stackgroup="positive",
                     legendgroup=col,
                     showlegend=col not in legend_shown,
@@ -104,7 +112,7 @@ def _stacked_area(
                     y=neg,
                     name=col,
                     mode="lines",
-                    line={"width": 0.5, "color": colors.get(col, "black")},
+                    line={"width": 0.5, "color": color},
                     stackgroup="negative",
                     legendgroup=col,
                     showlegend=col not in legend_shown,

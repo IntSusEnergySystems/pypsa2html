@@ -223,6 +223,56 @@ def tech_color_map() -> dict[str, str]:
     return dict(zip(table["name"], table["color"], strict=True))
 
 
+#: Distinct hues used when a technology has no palette entry.  Avoid the
+#: previous ``lightgrey`` default that made storage / unknown techs unreadable.
+_FALLBACK_COLORS = (
+    "#e41a1c",
+    "#377eb8",
+    "#4daf4a",
+    "#984ea3",
+    "#ff7f00",
+    "#a65628",
+    "#f781bf",
+    "#66c2a5",
+    "#fc8d62",
+    "#8da0cb",
+    "#e78ac3",
+    "#a6d854",
+    "#ffd92f",
+    "#e5c494",
+    "#1b9e77",
+    "#d95f02",
+    "#7570b3",
+    "#e7298a",
+)
+
+
+def resolve_tech_color(
+    name: str,
+    palette: dict[str, str] | None = None,
+) -> str:
+    """Look up a tech colour with case / rename fallbacks.
+
+    Order: exact match → case-insensitive → :func:`normalize_carrier` → a
+    stable distinct colour derived from the name (never flat grey).
+    """
+    palette = palette if palette is not None else tech_color_map()
+    key = str(name)
+    if key in palette:
+        return palette[key]
+    lower = {str(k).lower(): v for k, v in palette.items()}
+    if key.lower() in lower:
+        return lower[key.lower()]
+    norm = normalize_carrier(key)
+    if norm in palette:
+        return palette[norm]
+    if norm.lower() in lower:
+        return lower[norm.lower()]
+    # Stable per-name pick from the fallback palette.
+    idx = sum(ord(c) for c in key) % len(_FALLBACK_COLORS)
+    return _FALLBACK_COLORS[idx]
+
+
 def strip_markup(text: str) -> str:
     """Strip the ``<sub>`` markup the legacy unit strings carried."""
     return re.sub(r"</?[a-zA-Z][^>]*>", "", str(text or ""))
@@ -451,7 +501,7 @@ def stacked_bar(
     fig = go.Figure()
     for tech in transposed.columns:
         series = transposed[tech]
-        color = palette.get(tech, "lightgrey")
+        color = resolve_tech_color(str(tech), palette)
         if signed:
             fig.add_trace(
                 go.Bar(
