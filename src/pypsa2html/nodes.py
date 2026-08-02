@@ -17,7 +17,7 @@ See ``docs/DESIGN_DECISIONS.md`` (D2, D3) for the trade-offs.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pandas as pd
 

@@ -79,7 +79,13 @@ def test_codes_added_by_the_pypsa_wal_fork_are_producible(tax, producible_codes)
 
 def test_both_carrier_spellings_of_the_ev_charger_are_mapped(tax):
     """négaWatt calls it `EV charger`, pypsa-wal `BEV charger`."""
-    entries = dict(zip(tax.carrier_flows_energy["entry"], tax.carrier_flows_energy["code"]))
+    entries = dict(
+        zip(
+            tax.carrier_flows_energy["entry"],
+            tax.carrier_flows_energy["code"],
+            strict=True,
+        )
+    )
     assert entries["EV charger"] == entries["BEV charger"] == "prebev"
     assert entries["EV charger_2"] == entries["BEV charger_2"] == "prebevloss"
 

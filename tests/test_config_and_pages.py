@@ -11,7 +11,6 @@ from pypsa2html.context import _normalise_costs
 from pypsa2html.networks import discover_horizons
 from pypsa2html.pages import load_manifest
 
-
 # -- config ----------------------------------------------------------------
 
 def test_deep_merge_is_recursive_and_non_destructive():

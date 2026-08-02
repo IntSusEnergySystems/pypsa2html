@@ -110,7 +110,7 @@ class Taxonomy:
     def rename_map(self) -> dict[str, str]:
         """Model ``Value_Code`` -> internal ``Code``, from ``indicators.csv``."""
         ind = self.indicators
-        return dict(zip(ind["Value_Code"], ind.index))
+        return dict(zip(ind["Value_Code"], ind.index, strict=True))
 
 
 def _validate(tax: Taxonomy) -> None:
