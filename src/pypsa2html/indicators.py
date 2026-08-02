@@ -294,17 +294,10 @@ def node_flows(
     if split not in ("source", "target", "node"):
         raise ValueError(f"split must be 'source', 'target' or 'node', got {split!r}")
 
+    # 'source' and 'target' name the level to group by; 'node' keeps the
+    # selected nodes themselves as the columns.
     endpoint = "Source" if direction == "out" else "Target"
-    other = "Target" if direction == "out" else "Source"
-    by = endpoint if split == "node" else (
-        "Source" if split == "source" else other if split == "target" else other
-    )
-    # 'source'/'target' name the level to group by directly; 'node' keeps the
-    # selected nodes as the columns.
-    if split == "source":
-        by = "Source"
-    elif split == "target":
-        by = "Target"
+    by = endpoint if split == "node" else split.capitalize()
 
     node_list = [nodes] if isinstance(nodes, str) else list(nodes)
     result = sum_by(frame, where=endpoint, nodes=node_list, by=by)
