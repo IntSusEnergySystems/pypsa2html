@@ -48,6 +48,7 @@ agriculture heat,agriculture heat,TWh,presvapcfagr
 land transport oil,oil to transport demand,TWh,preslqfcftra
 land transport fuel cell,land transport hydrogen demand,TWh,preshydcftra
 land transport EV,land transport EV,TWh,preselccftra
+land transport EV inflexible,land transport EV inflexible,TWh,preselccftra
 kerosene for aviation,aviation oil demand,TWh,preslqfcfavi
 shipping oil,shipping oil,TWh,preslqfcffrewati
 shipping methanol,shipping methanol,TWh,presngvcffrewati
