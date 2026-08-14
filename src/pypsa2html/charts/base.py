@@ -565,6 +565,12 @@ def combine_charts(
     carry a slider (the Sankeys) keep it, and the slider swaps with the
     variant, as in the original.  ``None`` entries are dropped rather than
     crashing the page.
+
+    ``barmode`` is a *layout* property, so a single merged figure cannot hold
+    two of them: each button carries its own variant's mode.  Without that, a
+    comparison variant drawn with ``barmode='group'`` would flatten the
+    stacked composition variants sharing the dropdown with it (and vice
+    versa).
     """
     usable = [(str(label), fig) for label, fig in figures if fig is not None]
     if not usable:
@@ -606,6 +612,8 @@ def combine_charts(
             {"visible": visible},
             {"title": {"text": f"{title} {label}".strip()}},
         ]
+        if fig.layout.barmode is not None:
+            args[1]["barmode"] = fig.layout.barmode
         sliders = fig.layout.sliders or ()
         if sliders:
             slider = copy.deepcopy(sliders[0])

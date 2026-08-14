@@ -103,10 +103,17 @@ def _grouped_bar(
     *,
     unit: str,
     title: str = "",
-    signed: bool = False,
     scale: float = 1.0,
 ) -> go.Figure | None:
-    """Grouped bar chart: index = years, columns = scenario labels."""
+    """Grouped bar chart: index = years, columns = scenario labels.
+
+    Scenarios are *alternatives*, not parts of a whole, so their bars sit side
+    by side: stacking them draws a "total" that is the sum of mutually
+    exclusive futures.  Unlike :func:`~pypsa2html.charts.base.stacked_bar`
+    there is no positive/negative trace split either -- a grouped bar already
+    grows downwards when its value is negative, and splitting the signs would
+    give each of them its own slot in the group.
+    """
     if df is None or df.empty or not len(df.columns):
         return None
     data = df.astype(float) * scale
@@ -114,44 +121,18 @@ def _grouped_bar(
     palette = _scenario_palette(list(data.columns))
     fig = go.Figure()
     for label in data.columns:
-        series = data[label]
-        color = palette.get(str(label), "lightgrey")
-        if signed:
-            fig.add_trace(
-                go.Bar(
-                    x=years,
-                    y=series.where(series > 0, 0.0),
-                    name=str(label),
-                    marker_color=color,
-                    legendgroup=str(label),
-                    hovertemplate="%{y:.3g}",
-                )
+        fig.add_trace(
+            go.Bar(
+                x=years,
+                y=data[label],
+                name=str(label),
+                marker_color=palette.get(str(label), "lightgrey"),
+                hovertemplate="%{y:.3g}",
             )
-            if (series < 0).any():
-                fig.add_trace(
-                    go.Bar(
-                        x=years,
-                        y=series.where(series < 0, 0.0),
-                        name=str(label),
-                        marker_color=color,
-                        legendgroup=str(label),
-                        showlegend=False,
-                        hovertemplate="%{y:.3g}",
-                    )
-                )
-        else:
-            fig.add_trace(
-                go.Bar(
-                    x=years,
-                    y=series,
-                    name=str(label),
-                    marker_color=color,
-                    hovertemplate="%{y:.3g}",
-                )
-            )
+        )
     fig.update_layout(
         title=title or None,
-        barmode="group" if not signed else "relative",
+        barmode="group",
         height=CHART_HEIGHT,
         hovermode="x unified",
         yaxis_title=strip_markup(unit),
@@ -245,7 +226,7 @@ def _table_comparison(
     add_chart_data(ctx, node, section.title, section.unit, total_df.T)
 
     figures: list[tuple[str, go.Figure | None]] = [
-        ("Total", _grouped_bar(total_df, unit=section.unit, signed=signed, scale=scale)),
+        ("Total", _grouped_bar(total_df, unit=section.unit, scale=scale)),
     ]
     colors = tech_color_map()
     for label, table in stacks.items():
