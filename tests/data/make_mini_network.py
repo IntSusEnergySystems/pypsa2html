@@ -3,6 +3,18 @@
 
 Two locations (AA, BB), ~24 hourly snapshots, AC / gas / H2 buses, a CCGT
 link with a losses residual, a solar generator, a load, and an H2 pipe.
+
+The two locations deliberately model electric vehicles the two *different*
+ways the PyPSA-Eur family does, so one fixture covers both code paths of
+``extract.ev``:
+
+* **AA** — the pypsa-wal fork: demand split into a pinned natural-charging
+  load on the AC bus and a flexible load behind a ``BEV charger`` link, plus a
+  fleet battery and a ``V2G`` link.
+* **BB** — upstream PyPSA-Eur and the négaWatt fork: the whole fleet behind an
+  ``EV charger`` link (note the other carrier spelling), a fleet battery, no
+  natural-charging load and no V2G.
+
 Regenerate after PyPSA changes::
 
     conda activate pypsa-eur
@@ -123,6 +135,8 @@ def build() -> pypsa.Network:
         e_nom_opt=1e6,
     )
 
+    _add_electric_vehicles(n, profile)
+
     # Gas pipeline from EU hub (for the gas map).
     n.add(
         "Link",
@@ -138,6 +152,81 @@ def build() -> pypsa.Network:
     n.links_t.p1["EU-AA gas"] = -0.5
 
     return n
+
+
+def _add_electric_vehicles(n: pypsa.Network, solar_profile: np.ndarray) -> None:
+    """Two fleets: AA with a natural/smart split and V2G, BB fully optimised."""
+    n.add("Carrier", "EV battery")
+    n.add("Carrier", "V2G")
+    hours = np.arange(N_SNAPSHOTS)
+
+    # An evening-peaked uncontrolled charging shape, and a midday-heavy
+    # optimised one that follows the solar profile — the shift the chart shows.
+    evening = 60.0 + 240.0 * np.exp(-0.5 * ((hours - 19) / 2.5) ** 2)
+    midday = 40.0 + 500.0 * solar_profile
+
+    for loc, x in (("AA", 0.0), ("BB", 2.0)):
+        bus = f"{loc} EV battery"
+        n.add("Bus", bus, carrier="EV battery", location=loc, x=x, y=50.0)
+
+        # The driving demand of the optimised fleet, on the fleet-battery bus.
+        driving = 120.0 + 60.0 * np.sin(np.linspace(0, 2 * np.pi, N_SNAPSHOTS))
+        n.add("Load", f"{loc} land transport EV", bus=bus, carrier="land transport EV")
+        n.loads_t.p[f"{loc} land transport EV"] = driving
+        n.loads_t.p_set[f"{loc} land transport EV"] = driving
+
+        # Carrier spelling differs between the forks; detection is by topology.
+        charger = f"{loc} BEV charger" if loc == "AA" else f"{loc} EV charger"
+        n.add(
+            "Link",
+            charger,
+            bus0=loc,
+            bus1=bus,
+            carrier="BEV charger" if loc == "AA" else "EV charger",
+            p_nom=800.0,
+            p_nom_opt=800.0,
+            efficiency=0.9,
+        )
+        n.links_t.p0[charger] = midday
+        n.links_t.p1[charger] = -midday * 0.9
+
+        n.add(
+            "Store",
+            bus,
+            bus=bus,
+            carrier="EV battery",
+            e_nom=4000.0,
+            e_nom_opt=4000.0,
+            e_cyclic=True,
+        )
+        soc = 2000.0 + 800.0 * np.cos(np.linspace(0, 2 * np.pi, N_SNAPSHOTS))
+        n.stores_t.e[bus] = soc
+        n.stores_t.p[bus] = np.gradient(-soc)
+
+    # AA only: the share of demand pinned to the observed natural-charging
+    # profile, on the AC bus, plus a V2G link back to it.
+    n.add(
+        "Load",
+        "AA land transport EV inflexible",
+        bus="AA",
+        carrier="land transport EV inflexible",
+    )
+    n.loads_t.p["AA land transport EV inflexible"] = evening
+    n.loads_t.p_set["AA land transport EV inflexible"] = evening
+
+    n.add(
+        "Link",
+        "AA V2G",
+        bus0="AA EV battery",
+        bus1="AA",
+        carrier="V2G",
+        p_nom=400.0,
+        p_nom_opt=400.0,
+        efficiency=0.9,
+    )
+    v2g = 150.0 * np.exp(-0.5 * ((hours - 19) / 1.5) ** 2)
+    n.links_t.p0["AA V2G"] = v2g
+    n.links_t.p1["AA V2G"] = -v2g * 0.9
 
 
 def main() -> None:

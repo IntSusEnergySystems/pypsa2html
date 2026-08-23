@@ -13,6 +13,7 @@
 #   builder  dotted path, resolved relative to pypsa2html.charts
 #   enabled  default on/off; override per project under `plots:` in the config
 #   scope    all | real | aggregate  -- which nodes this section applies to
+#            (`aggregate` = any synthetic node: study-wide *or* a group)
 #   unit     axis/label unit, also written into the chart-data workbook
 
 pages:
@@ -82,6 +83,12 @@ pages:
       - {id: power_dispatch_summer,  title: Power dispatch (summer week),    builder: dispatch.power_summer, unit: GW}
       - {id: heat_dispatch_winter,   title: Heat dispatch (winter week),     builder: dispatch.heat_winter,  unit: GW}
       - {id: heat_dispatch_summer,   title: Heat dispatch (summer week),     builder: dispatch.heat_summer,  unit: GW}
+      # Electric vehicles: natural (uncontrolled) vs smart charging, V2G and
+      # the fleet state of charge.  Absent from a model without EVs, in which
+      # case the builder returns None and the section is simply not rendered.
+      - {id: ev_charging_winter,     title: EV charging (winter week),        builder: ev.charging_winter,    unit: GW}
+      - {id: ev_charging_summer,     title: EV charging (summer week),        builder: ev.charging_summer,    unit: GW}
+      - {id: ev_energy_by_mode,      title: EV charging energy by mode,       builder: ev.energy_by_mode,     unit: TWh/year}
 
   - id: maps
     title: Maps

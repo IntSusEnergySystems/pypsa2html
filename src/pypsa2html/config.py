@@ -119,6 +119,19 @@ class AggregateConfig:
 
 
 @dataclass
+class NodeGroupConfig:
+    """A synthetic node that sums an explicit list of real locations.
+
+    Membership is always an explicit ``members`` list.  Prefix matching is
+    rejected (``BE`` must not silently include ``BEWAL``).
+    """
+
+    code: str
+    label: str = ""
+    members: list[str] = field(default_factory=list)
+
+
+@dataclass
 class NodesConfig:
     detect: bool = True
     include: list[str] | None = None
@@ -127,6 +140,8 @@ class NodesConfig:
     focus: str | None = None
     resolution: str = "location"
     aggregate: AggregateConfig = field(default_factory=AggregateConfig)
+    #: Extra synthetic nodes, each summing ``members``.  Empty by default.
+    groups: list[NodeGroupConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -148,6 +163,12 @@ class FeaturesConfig:
     #: ``bus_carrier`` (default) keeps components attached to electricity /
     #: heat / H2 service buses; ``off`` plots every non-Store row.
     capacity_filter: str | None = "bus_carrier"
+    #: Drop |bus price| above this cap (€/MWh) if prices are ever plotted.
+    #: Empty-bus duals in PyPSA routinely hit 1e5–1e6 €/MWh.
+    price_abs_cap: float = 1.0e4
+
+    def __post_init__(self):
+        self.price_abs_cap = float(self.price_abs_cap)
 
 
 @dataclass
@@ -284,8 +305,15 @@ def load_config(path: str | Path, overrides: dict | None = None) -> Config:
 
     nodes_raw = dict(merged.get("nodes", {}))
     aggregate = _as_dataclass(AggregateConfig, dict(nodes_raw.pop("aggregate", {})))
+    groups_raw = nodes_raw.pop("groups", []) or []
+    if not isinstance(groups_raw, list):
+        raise ValueError(
+            "nodes.groups must be a list of {code, label, members} mappings"
+        )
+    groups = [_as_dataclass(NodeGroupConfig, dict(g)) for g in groups_raw]
     nodes = _as_dataclass(NodesConfig, nodes_raw)
     nodes.aggregate = aggregate
+    nodes.groups = groups
     if nodes.resolution not in ("location", "substring"):
         raise ValueError(
             f"nodes.resolution must be 'location' or 'substring', got {nodes.resolution!r}"

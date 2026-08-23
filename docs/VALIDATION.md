@@ -139,3 +139,19 @@ sections B and C; anything else is a regression worth investigating.
 > **Status.** Sections A and C are complete and enforced by the test suite.
 > Section B is populated from the code analysis; the per-value numeric
 > comparison lands with the extraction port.
+
+---
+
+## SEPIA chart traps (must not reproduce)
+
+These are reporter bugs from the earlier SEPIA HTML tool, independent of the
+B-list above. pypsa2html must not repeat them.
+
+| # | Trap | Guard |
+|---|---|---|
+| C1 | Mixing MW and MWh in one bar | Power vs storage charts; Stores excluded from the power table. `capacity_filter` keeps service-bus topology. Pinned by `test_capacity_table_does_not_mix_store_mwh_and_link_mw`. |
+| C2 | ×10 cumulative GHG ("years in decade") | No `* 10` on GHG. Annual series are plotted as annual; cumulative charts use `ctx.horizon_weights()`. Pinned by `test_cumulative_emissions_use_horizon_weights`. |
+| C3 | `load` / inf load-shedding on the GW axis | `capacity_filter._is_junk_name` drops `load`, `*vent*`, `*to air*`, `*shedding*`. Pinned by `test_capacity_filter_drops_load_shedding_and_vents`. |
+| C4 | Degenerate industry / vents dominating the axis | Same topology filter; extra junk is name patterns + service-bus logic, never a country denylist. |
+| C6 | Year labels renamed positionally to 2020/2030/2040/2050 | `extract/tables.parse_nodal_csv` reads the `planning_horizon` header. Pinned by `test_parse_nodal_csv_reads_horizons_from_header`. |
+| B3 | Garbage shadow prices (e.g. −592421 €/MWh on an empty methanol bus) | Prices are not plotted yet. `extract.tables.sanitize_prices` drops non-finite values and `|price| > features.price_abs_cap` (default 1e4 €/MWh). Call it before any price chart. |

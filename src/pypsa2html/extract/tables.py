@@ -81,6 +81,9 @@ def parse_nodal_csv(raw: pd.DataFrame) -> pd.DataFrame:
     ``component``, ``location``, ``carrier``, …) plus one numeric column per
     planning horizon, labelled with the year string from the
     ``planning_horizon`` row.
+
+    Horizons come from that header — never a positional rename to
+    2020/2030/2040/2050 (SEPIA C6).
     """
     if raw is None or raw.empty:
         return pd.DataFrame()
@@ -148,13 +151,44 @@ def _load_nodal(ctx: BuildContext, relpath: str) -> pd.DataFrame | None:
     return parsed.copy()
 
 
+def _node_locations(ctx: BuildContext, node: str) -> list[str] | None:
+    """Locations to keep in a nodal CSV. ``None`` = no filter (study-wide)."""
+    if hasattr(ctx, "locations_for"):
+        return ctx.locations_for(node)
+    if hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node):
+        return None
+    return [str(node)]
+
+
 def _filter_location(df: pd.DataFrame, ctx: BuildContext, node: str) -> pd.DataFrame:
     if "location" not in df.columns:
         logger.warning("nodal table has no 'location' column")
         return df.iloc[0:0]
-    if ctx.is_aggregate(node):
+    locations = _node_locations(ctx, node)
+    if locations is None:
         return df
-    return df.loc[df["location"].astype(str) == str(node)]
+    loc = df["location"].astype(str)
+    return df.loc[loc.isin([str(c) for c in locations])]
+
+
+#: Default |€/MWh| above which a bus price is treated as an empty-bus dual.
+_DEFAULT_PRICE_ABS_CAP = 1.0e4
+
+
+def sanitize_prices(
+    values: pd.Series,
+    *,
+    cap: float | None = None,
+) -> pd.Series:
+    """Replace non-finite and |price| > ``cap`` with NaN (SEPIA B3).
+
+    Empty buses (e.g. an unused methanol bus) produce shadow prices of order
+    1e5–1e6 €/MWh.  Prices are not plotted yet; call this before they are.
+    ``cap`` defaults to ``1e4`` €/MWh.
+    """
+    numeric = pd.to_numeric(values, errors="coerce")
+    limit = _DEFAULT_PRICE_ABS_CAP if cap is None else float(cap)
+    return numeric.where(numeric.abs() <= limit)
 
 
 def _transmission_enabled(ctx: BuildContext) -> bool:
@@ -400,7 +434,7 @@ def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
     if not hasattr(ctx, "networks") or not hasattr(ctx, "horizons"):
         return out
 
-    aggregate = hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node)
+    locations = _node_locations(ctx, node)
     for horizon in ctx.horizons:
         try:
             network = ctx.networks[horizon]
@@ -414,13 +448,13 @@ def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
         nuc = links.loc[links["carrier"].astype(str) == "nuclear"]
         if nuc.empty:
             continue
-        if not aggregate:
+        if locations is not None:
             buses = getattr(network, "buses", None)
             if buses is not None and "location" in buses.columns:
                 dest = nuc["bus1"].map(buses["location"])
             else:
                 dest = nuc["bus1"].astype(str)
-            nuc = nuc.loc[dest.astype(str) == str(node)]
+            nuc = nuc.loc[dest.astype(str).isin([str(c) for c in locations])]
         if nuc.empty:
             continue
         eff = (

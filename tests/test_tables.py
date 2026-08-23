@@ -13,6 +13,7 @@ from pypsa2html.extract.tables import (
     capacity_table,
     cost_table,
     parse_nodal_csv,
+    sanitize_prices,
 )
 from pypsa2html.nodes import Node, NodeSet
 
@@ -53,6 +54,7 @@ def _nodal_caps_csv(horizons=(2025, 2030, 2040)) -> str:
 
 
 def test_parse_nodal_csv_reads_horizons_from_header():
+    """SEPIA C6: year labels come from the planning_horizon row, never 2020/2030/2040/2050 by position."""
     raw = pd.read_csv(
         pd.io.common.StringIO(_nodal_costs_csv((2025, 2035, 2045))), header=None
     )
@@ -183,3 +185,58 @@ def test_clustered_costs(tmp_path):
     assert table is not None
     # Should collapse into Uses / Networks / Power Plants / Imports etc.
     assert len(table.index) <= 6
+
+
+def test_cost_table_group_sums_member_locations(tmp_path):
+    ctx = _tables_ctx(tmp_path)
+    ctx.nodes = NodeSet(
+        nodes=[
+            Node("AA", "Alpha"),
+            Node("BB", "Beta"),
+            Node("GRP", "Pair", aggregate=True, members=("AA", "BB")),
+            Node("ALL", "Both", aggregate=True),
+        ],
+        focus="AA",
+        aggregate_code="ALL",
+    )
+    grouped = cost_table(ctx, "GRP", "capital")
+    study_wide = cost_table(ctx, "ALL", "capital")
+    one = cost_table(ctx, "AA", "capital")
+    assert grouped is not None and study_wide is not None and one is not None
+    pd.testing.assert_frame_equal(grouped, study_wide)
+    assert grouped.values.sum() > one.values.sum()
+
+
+def test_capacity_table_does_not_mix_store_mwh_and_link_mw(tmp_path):
+    """SEPIA C1: Store energy (MWh) and Link power (MW) must not share a cell."""
+    ctx = _tables_ctx(tmp_path)
+    h = [2025, 2030, 2040]
+    rows = [
+        "cluster,,," + ",".join(["adm"] * 3),
+        "opt,,," + ",".join([""] * 3),
+        "planning_horizon,,," + ",".join(str(x) for x in h),
+        "component,location,carrier," + ",".join([""] * 3),
+        "Store,AA,battery,1000,2000,3000",
+        "Link,AA,battery,10,20,30",
+    ]
+    (ctx.results_dir / "csvs" / "nodal_capacities.csv").write_text("\n".join(rows) + "\n")
+    power = capacity_table(ctx, "AA", "power")
+    storage = capacity_table(ctx, "AA", "storage")
+    assert power is not None and storage is not None
+    mixed = {1010.0, 2020.0, 3030.0}
+    assert mixed.isdisjoint(set(power.to_numpy().ravel().astype(float)))
+    assert mixed.isdisjoint(set(storage.to_numpy().ravel().astype(float)))
+    # Store MWh landed only on the storage chart.
+    assert float(storage.values.max()) >= 1000.0
+    assert float(power.values.max()) <= 30.0
+
+
+def test_sanitize_prices_drops_empty_bus_duals():
+    """SEPIA B3: |price| > cap (and inf/NaN) must not be plotted."""
+    raw = pd.Series([50.0, -592421.0, float("inf"), float("nan"), -20.0])
+    out = sanitize_prices(raw, cap=1e4)
+    assert out.iloc[0] == pytest.approx(50.0)
+    assert pd.isna(out.iloc[1])
+    assert pd.isna(out.iloc[2])
+    assert pd.isna(out.iloc[3])
+    assert out.iloc[4] == pytest.approx(-20.0)

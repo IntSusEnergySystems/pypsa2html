@@ -76,6 +76,15 @@ class IndicatorTestContext:
     def is_aggregate(self, node: str) -> bool:
         return self.nodes.is_aggregate(node)
 
+    def is_study_wide(self, node: str) -> bool:
+        return self.nodes.is_study_wide(node)
+
+    def members_of(self, node: str):
+        return self.nodes.members_of(node)
+
+    def locations_for(self, node: str):
+        return self.nodes.locations_for(node)
+
     def read_csv(self, relpath: str | Path, *, base: str = "results", **kwargs):
         path = self.resources_dir / relpath
         if not path.exists():

@@ -222,3 +222,67 @@ def test_section_scope():
     assert section.scope == "real"
     assert section.applies_to(Node(False))
     assert not section.applies_to(Node(True))
+
+
+def test_groups_are_loaded_from_yaml(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "scenarios": [{"name": "one", "results_dir": "r"}],
+                "nodes": {
+                    "detect": False,
+                    "include": ["BEVLG", "BEWAL", "DE"],
+                    "groups": [
+                        {
+                            "code": "BE",
+                            "label": "Belgium",
+                            "members": ["BEVLG", "BEWAL", "BEBRU"],
+                        }
+                    ],
+                },
+            }
+        )
+    )
+    cfg = load_config(path)
+    assert len(cfg.nodes.groups) == 1
+    assert cfg.nodes.groups[0].code == "BE"
+    assert cfg.nodes.groups[0].members == ["BEVLG", "BEWAL", "BEBRU"]
+    assert cfg.features.price_abs_cap == 1.0e4
+
+
+def test_group_prefix_key_rejected_in_config(tmp_path):
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "scenarios": [{"name": "one", "results_dir": "r"}],
+                "nodes": {
+                    "groups": [{"code": "BE", "members": ["BEVLG"], "prefix": "BE"}],
+                },
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="unknown key"):
+        load_config(path)
+
+
+def test_negawatt_example_declares_be_group_and_eu_study_wide():
+    from pathlib import Path
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "negawatt.yaml")
+    assert cfg.nodes.focus == "BE"
+    assert cfg.landing.node == "BE"
+    assert cfg.nodes.aggregate.code == "EU"
+    assert [g.code for g in cfg.nodes.groups] == ["BE"]
+    assert cfg.nodes.groups[0].members == ["BEVLG", "BEWAL", "BEBRU"]
+    assert "BEVLG" in cfg.nodes.labels
+
+
+def test_pypsa_wal_example_has_no_be_group():
+    from pathlib import Path
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "pypsa-wal.yaml")
+    assert cfg.nodes.focus == "BEWAL"
+    assert cfg.nodes.groups == []
+    assert cfg.nodes.aggregate.code == "ALL"

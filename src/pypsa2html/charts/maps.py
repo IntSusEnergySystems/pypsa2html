@@ -37,6 +37,12 @@ _MAPS_AVAILABLE = False
 _IMPORT_ERROR: Exception | None = None
 
 try:
+    import os
+
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
     import cartopy.crs as ccrs
     import geopandas as gpd
     import matplotlib.pyplot as plt

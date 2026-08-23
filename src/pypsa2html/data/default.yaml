@@ -40,6 +40,15 @@ nodes:
     enabled: true
     code: ALL           # NOT "EU": that is a real PyPSA-Eur bus location
     label: ""           # "" = "All N regions"
+  # Extra synthetic nodes. Each sums an explicit `members` list — never a
+  # prefix match (`BE` must not silently include `BEWAL`). Missing members
+  # are skipped with a warning. If `code` is already a detected location,
+  # the group is omitted (the real node already has pages). Empty by default.
+  groups: []
+  # groups:
+  #   - code: BE
+  #     label: Belgium
+  #     members: [BEVLG, BEWAL, BEBRU]
 
 landing:
   scenario: null        # null = first declared scenario
@@ -78,5 +87,8 @@ features:
   # (default).  Set to "off" to plot every non-Store row (usually unusable —
   # fuel potentials and vents dominate the GW axis).
   capacity_filter: bus_carrier
+  # |€/MWh| above which a bus price is treated as an empty-bus dual (SEPIA B3).
+  # Prices are not plotted yet; extract.tables.sanitize_prices is the guard.
+  price_abs_cap: 10000.0
 
 scenarios: []

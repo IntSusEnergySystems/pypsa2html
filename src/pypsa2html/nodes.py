@@ -17,6 +17,7 @@ See ``docs/DESIGN_DECISIONS.md`` (D2, D3) for the trade-offs.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import pandas as pd
@@ -35,9 +36,12 @@ class Node:
 
     code: str
     label: str
-    #: True for the synthetic "sum of all nodes" entry, which has no buses of
-    #: its own and is resolved by *not* filtering.
+    #: True for any synthetic node (study-wide sum, or a configured group).
+    #: Synthetic nodes have no buses of their own; membership is ``members``.
     aggregate: bool = False
+    #: ``None`` on a real node and on the study-wide aggregate (every real
+    #: location).  A tuple on a group aggregate: the explicit member codes.
+    members: tuple[str, ...] | None = None
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.code
@@ -49,6 +53,8 @@ class NodeSet:
 
     nodes: list[Node]
     focus: str
+    #: Study-wide "sum of all real nodes" code, when enabled.  Group
+    #: aggregates are *also* synthetic and are not stored here.
     aggregate_code: str | None = None
 
     def __iter__(self):
@@ -63,7 +69,7 @@ class NodeSet:
 
     @property
     def real_codes(self) -> list[str]:
-        """Node codes excluding the synthetic aggregate."""
+        """Node codes excluding every synthetic aggregate (study-wide and groups)."""
         return [n.code for n in self.nodes if not n.aggregate]
 
     def __getitem__(self, code: str) -> Node:
@@ -73,7 +79,50 @@ class NodeSet:
         raise KeyError(f"unknown node {code!r}; known nodes: {self.codes}")
 
     def is_aggregate(self, code: str) -> bool:
-        return self.aggregate_code is not None and code == self.aggregate_code
+        """True for the study-wide aggregate *and* for every group aggregate."""
+        for n in self.nodes:
+            if n.code == code:
+                return n.aggregate
+        return False
+
+    def is_study_wide(self, code: str) -> bool:
+        """True when ``code`` is the unfiltered sum of every real location.
+
+        That is the ``nodes.aggregate`` entry (``members is None``), or a
+        group whose remaining members happen to be exactly ``real_codes``.
+        """
+        if not self.is_aggregate(code):
+            return False
+        members = self[code].members
+        if members is None:
+            return True
+        return set(members) == set(self.real_codes)
+
+    def members_of(self, code: str) -> list[str] | None:
+        """Location codes that make up ``code``.
+
+        ``None`` for a real node and for the study-wide aggregate (meaning
+        "every real location").  For a group aggregate, the sorted unique
+        member codes that were present at detection — never a prefix match.
+        """
+        node = self[code]
+        if not node.aggregate or node.members is None:
+            return None
+        return list(node.members)
+
+    def locations_for(self, code: str) -> list[str] | None:
+        """Locations to keep when selecting components for ``code``.
+
+        ``None`` means do not filter (study-wide, or a group equal to all
+        real nodes).  Otherwise the exact location codes to keep — a single
+        real node, or a group's members.  Never derived from ``.str[:2]``.
+        """
+        node = self[code]
+        if not node.aggregate:
+            return [code]
+        if node.members is None or set(node.members) == set(self.real_codes):
+            return None
+        return list(node.members)
 
 
 def detect_locations(network, exclude: frozenset[str] = PSEUDO_LOCATIONS) -> list[str]:
@@ -92,6 +141,24 @@ def detect_locations(network, exclude: frozenset[str] = PSEUDO_LOCATIONS) -> lis
     return sorted(locations - set(exclude))
 
 
+def _group_fields(spec: Mapping | object) -> tuple[str, str, list[str]]:
+    """``(code, label, members)`` from a mapping or a config dataclass."""
+    if isinstance(spec, Mapping):
+        code = str(spec["code"])
+        label = str(spec.get("label") or "")
+        members = [str(m) for m in (spec.get("members") or [])]
+        extra = set(spec) - {"code", "label", "members"}
+        if extra:
+            raise ValueError(
+                f"unknown key(s) {sorted(extra)} on nodes.groups entry {code!r}. "
+                "Only explicit 'members' lists are supported — no prefix matching."
+            )
+        return code, label, members
+    return str(spec.code), str(getattr(spec, "label", "") or ""), [
+        str(m) for m in (getattr(spec, "members", None) or [])
+    ]
+
+
 def build_node_set(
     detected: list[str],
     *,
@@ -101,12 +168,18 @@ def build_node_set(
     focus: str | None = None,
     aggregate_code: str | None = None,
     aggregate_label: str | None = None,
+    groups: Sequence | None = None,
 ) -> NodeSet:
     """Assemble the final :class:`NodeSet` from detection plus config overrides.
 
     ``include`` fully overrides detection when given; otherwise detection runs
-    and ``exclude`` is subtracted.  The aggregate node, when enabled, is always
-    appended last so that positional output ordering stays stable.
+    and ``exclude`` is subtracted.  Configured group aggregates are appended
+    after the real nodes; the study-wide aggregate, when enabled, is always
+    last so that positional output ordering stays stable.
+
+    Group membership is an explicit ``members`` list.  There is no prefix
+    matching (``BE`` never silently includes ``BEWAL``).  A group whose
+    ``code`` is already a detected location is omitted with a warning.
     """
     labels = labels or {}
     codes = list(include) if include else [c for c in detected if c not in set(exclude or ())]
@@ -128,6 +201,56 @@ def build_node_set(
 
     nodes = [Node(code=c, label=labels.get(c, c)) for c in codes]
 
+    for spec in groups or ():
+        g_code, g_label, g_members = _group_fields(spec)
+        if g_code in codes:
+            logger.warning(
+                "group %s collides with a real model node %s; group omitted "
+                "(the real node already has pages)",
+                g_code,
+                g_code,
+            )
+            continue
+        if aggregate_code and g_code == aggregate_code:
+            raise ValueError(
+                f"group node code {g_code!r} collides with nodes.aggregate.code. "
+                f"Choose a different nodes.groups[].code."
+            )
+        if g_code in {n.code for n in nodes if n.aggregate}:
+            raise ValueError(
+                f"group node code {g_code!r} is duplicated in nodes.groups."
+            )
+        present: list[str] = []
+        missing: list[str] = []
+        for member in g_members:
+            if member in codes:
+                present.append(member)
+            else:
+                missing.append(member)
+        if missing:
+            logger.warning(
+                "group %s: member(s) %s were not found in the detected nodes "
+                "(%s); skipped",
+                g_code,
+                missing,
+                codes,
+            )
+        if not present:
+            logger.warning(
+                "group %s has no remaining members after detection; group omitted",
+                g_code,
+            )
+            continue
+        members = tuple(sorted(set(present)))
+        nodes.append(
+            Node(
+                code=g_code,
+                label=labels.get(g_code, g_label or g_code),
+                aggregate=True,
+                members=members,
+            )
+        )
+
     if aggregate_code:
         if aggregate_code in codes:
             raise ValueError(
@@ -139,6 +262,7 @@ def build_node_set(
                 code=aggregate_code,
                 label=aggregate_label or f"All {len(codes)} regions",
                 aggregate=True,
+                members=None,
             )
         )
 
@@ -176,18 +300,44 @@ class NodeResolver:
             raise ValueError(
                 "strategy='location' requires a 'location' column on network.buses"
             )
+        self._first_real_link_nodes: pd.Series | None = None
+
+    def _static(self, component: str) -> pd.DataFrame:
+        return getattr(self.n, component)
 
     def bus_nodes(self, buses: pd.Series) -> pd.Series:
         """Map a Series of bus names to their node codes."""
         return buses.map(self._bus_location)
 
+    def first_real_link_nodes(self) -> pd.Series:
+        """Map every link to the first of its buses that sits in a real location.
+
+        ``bus0`` alone is not enough: PyPSA-Eur keeps oil/coal/methanol
+        commodity buses at the pseudo-location ``EU``, so a regional naphtha
+        link (``bus0 = "EU oil"``, ``bus1 = "<node> naphtha for industry"``)
+        would otherwise belong to no node.  Cached on the resolver.
+        """
+        if self._first_real_link_nodes is not None:
+            return self._first_real_link_nodes
+        links = self.n.links
+        nodes = pd.Series(pd.NA, index=links.index, dtype=object)
+        bus_columns = [c for c in links.columns if c.startswith("bus")]
+        for column in sorted(bus_columns, key=lambda c: int(c[3:] or 0)):
+            candidate = self.bus_nodes(links[column])
+            candidate = candidate.where(~candidate.isin(PSEUDO_LOCATIONS))
+            nodes = nodes.mask(nodes.isna(), candidate)
+        if "bus0" in links.columns:
+            nodes = nodes.mask(nodes.isna(), self.bus_nodes(links["bus0"]))
+        self._first_real_link_nodes = nodes
+        return nodes
+
     def mask(self, component: str, node: str, *, bus_attr: str | None = None) -> pd.Series:
         """Boolean mask selecting the rows of ``component`` belonging to ``node``.
 
         ``bus_attr`` defaults to ``bus`` for one-port components and ``bus0``
-        for branches.
+        for branches.  For a set of locations use :meth:`select_locations`.
         """
-        static = self.n.static(component) if hasattr(self.n, "static") else getattr(self.n, component)
+        static = self._static(component)
         if self.strategy == "substring":
             return pd.Series(static.index.str.contains(node, regex=False), index=static.index)
         if bus_attr is None:
@@ -196,5 +346,37 @@ class NodeResolver:
 
     def select(self, component: str, node: str, *, bus_attr: str | None = None) -> pd.Index:
         """Index of the rows of ``component`` belonging to ``node``."""
-        static = self.n.static(component) if hasattr(self.n, "static") else getattr(self.n, component)
-        return static.index[self.mask(component, node, bus_attr=bus_attr)]
+        return self.select_locations(component, [node], bus_attr=bus_attr)
+
+    def select_locations(
+        self,
+        component: str,
+        locations: list[str] | None,
+        *,
+        bus_attr: str | None = None,
+    ) -> pd.Index:
+        """Index of rows whose resolved location is in ``locations``.
+
+        ``locations is None`` means no filter (study-wide aggregate).  An empty
+        list selects nothing.  There is no prefix matching: ``"BE"`` does not
+        match location ``"BEWAL"``.
+
+        ``bus_attr`` defaults to ``bus0`` / ``bus``, same as :meth:`mask`.
+        For energy-flow link attribution (first real bus) use
+        :meth:`first_real_link_nodes` via ``BuildContext.component_index``.
+        """
+        static = self._static(component)
+        if locations is None:
+            return static.index
+        if not locations:
+            return static.index[0:0]
+        if self.strategy == "substring":
+            mask = pd.Series(False, index=static.index)
+            for loc in locations:
+                mask |= pd.Series(
+                    static.index.str.contains(loc, regex=False), index=static.index
+                )
+            return static.index[mask]
+        if bus_attr is None:
+            bus_attr = "bus0" if "bus0" in static.columns else "bus"
+        return static.index[self.bus_nodes(static[bus_attr]).isin(locations)]

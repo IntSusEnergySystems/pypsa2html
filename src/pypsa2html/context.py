@@ -73,10 +73,66 @@ class BuildContext:
         return pd.Series(gaps + [gaps[-1]], index=h, dtype=float)
 
     def resolver(self, horizon: int) -> NodeResolver:
-        return NodeResolver(self.networks[horizon], self.config.nodes.resolution)
+        key = ("node_resolver", int(horizon), self.config.nodes.resolution)
+        cached = self._files.get(key)
+        if cached is None:
+            cached = NodeResolver(self.networks[horizon], self.config.nodes.resolution)
+            self._files[key] = cached
+        return cached
 
     def is_aggregate(self, node: str) -> bool:
+        """True for the study-wide aggregate and for every group aggregate."""
         return self.nodes.is_aggregate(node)
+
+    def is_study_wide(self, node: str) -> bool:
+        """True when ``node`` is the unfiltered sum of every real location."""
+        return self.nodes.is_study_wide(node)
+
+    def members_of(self, node: str) -> list[str] | None:
+        """See :meth:`NodeSet.members_of`."""
+        return self.nodes.members_of(node)
+
+    def locations_for(self, node: str) -> list[str] | None:
+        """See :meth:`NodeSet.locations_for`.
+
+        ``None`` = do not filter.  A list = keep exactly those location codes.
+        """
+        return self.nodes.locations_for(node)
+
+    def component_index(
+        self,
+        horizon: int,
+        component: str,
+        node: str,
+        *,
+        bus_attr: str | None = None,
+    ) -> pd.Index:
+        """Index of ``component`` rows belonging to ``node``.
+
+        * Real node: that location only.
+        * Group aggregate: rows whose resolved location is in ``members_of``.
+        * Study-wide aggregate (``members`` is None, or equals every real
+          code): no filter.
+
+        Links with no ``bus_attr`` are attributed to the first bus that sits
+        in a real location, so commodity hubs at the pseudo-location ``EU``
+        still count toward the region they serve.  Charts and extractors must
+        use this helper rather than forking ``is_aggregate`` / ``.str[:2]``.
+        """
+        resolver = self.resolver(horizon)
+        locations = self.locations_for(node)
+        network = self.networks[horizon]
+        static = getattr(network, component)
+        if locations is None:
+            return static.index
+        if (
+            component == "links"
+            and bus_attr is None
+            and resolver.strategy == "location"
+        ):
+            assigned = resolver.first_real_link_nodes()
+            return static.index[assigned.isin(locations)]
+        return resolver.select_locations(component, locations, bus_attr=bus_attr)
 
     # -- cached file access ------------------------------------------------
     def read_csv(self, relpath: str | Path, *, base: str = "results", **kwargs):
@@ -195,6 +251,7 @@ def build_context(config: Config, scenario_name: str | None = None) -> BuildCont
         focus=config.nodes.focus,
         aggregate_code=agg.code if agg.enabled else None,
         aggregate_label=agg.label or None,
+        groups=config.nodes.groups,
     )
 
     return BuildContext(

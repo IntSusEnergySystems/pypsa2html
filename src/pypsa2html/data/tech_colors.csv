@@ -58,6 +58,7 @@ DC link,#8a1caf
 DC Transmission,#104e8b
 DC-DC,#8a1caf
 decentral heat,#750606
+Delivered to vehicles,#1a1a1a
 distribution network,#97ad8c
 district heating,#e8beac
 electric demand,#110d63
@@ -67,6 +68,7 @@ electricity distribution grid,#97ad8c
 EV battery,#baf238
 EV charger,#baf238
 Fischer-Tropsch,#25c49a
+Fleet battery state of charge,#7b5aa6
 Fossil Fuel techs,#e05b09
 fossil fuels,#c9c9c9
 Fossil fuels & powerplants,#e05b09
@@ -121,6 +123,7 @@ hydro+PHS,#08ad97
 hydroelectricity,#298c81
 hydrogen,#bf13a0
 hydrogen storage,#bf13a0
+If charged naturally,#595959
 imported oil,#a3a3a3
 Imports,#9a0200
 industry electricity,#2d2a66
@@ -146,7 +149,9 @@ methane,#c44ce6
 methanol,#468c8b
 methanolisation,#83d6d5
 naphtha for industry,#57ebc4
+Natural charging,#7fa8c9
 natural gas,#e05b09
+Net EV grid draw,#1a1a1a
 Networks,#fcc006
 NH3,#46caf0
 Nuclear,#ff8c00
@@ -238,6 +243,7 @@ shipping methanol,#468c8b
 shipping methanol emissions,#666666
 shipping oil,#808080
 shipping oil emissions,#555555
+Smart charging,#baf238
 SMR,#870c71
 SMR CC,#4f1745
 solar,#f9d002
@@ -278,5 +284,6 @@ urban central water tanks charger,#b57a67
 urban central water tanks discharger,#b9816e
 Uses,#01889f
 V2G,#e5ffa8
+V2G to grid,#f2a340
 waste,#e3d37d
 water tanks,#e69487

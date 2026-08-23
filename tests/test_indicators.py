@@ -97,6 +97,7 @@ def test_ghg_frames_match_chartdata_except_biomass(
 
 
 def test_cumulative_emissions_use_horizon_weights(indicator_ctx, energy_flows_be, carbon_flows_be):
+    """SEPIA C2: annual series stay annual; no 'years in decade × 10' hack."""
     result = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
     weights = indicator_ctx.horizon_weights().reindex(result.ghg_sector.index).to_numpy()
     expected = result.ghg_sector.mul(weights, axis=0).cumsum()
@@ -172,3 +173,11 @@ def test_base_year_ghg_sector_is_populated(indicator_ctx, energy_flows_be, carbo
     result = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
     assert result.ghg_sector.loc[2020].notna().all()
     assert result.ghg_sector.loc[2020].abs().sum() > 0
+
+
+def test_region_value_does_not_treat_bewal_as_be():
+    """No prefix matching: BEWAL is not a clustered form of BE."""
+    series = pd.Series({"BEWAL": 1.0, "BE1 0": 2.0, "DE": 3.0})
+    assert indicators._region_value(series, "BE") == pytest.approx(2.0)
+    assert indicators._region_value(series, "BEWAL") == pytest.approx(1.0)
+    assert pd.isna(indicators._region_value(series, "FR"))

@@ -109,13 +109,17 @@ def energy_balance(
         )
         return None
 
-    aggregate = ctx.is_aggregate(node)
+    locations = (
+        ctx.locations_for(node)
+        if hasattr(ctx, "locations_for")
+        else (None if ctx.is_aggregate(node) else [node])
+    )
     resolver = ctx.resolver(horizon)
-    supply = _branch_flows(n, resolver, node, buses, aggregate)
-    supply = _one_port_flows(n, resolver, node, buses, aggregate, supply)
+    supply = _branch_flows(n, resolver, buses, locations)
+    supply = _one_port_flows(n, resolver, buses, locations, supply)
 
     if carrier == "AC":
-        imp_exp = _import_export(n, resolver, node, aggregate)
+        imp_exp = _import_export(n, resolver, locations)
         supply = supply.assign(Imports_Exports=imp_exp)
 
     if carrier == "heat":
@@ -126,8 +130,8 @@ def energy_balance(
     supply = _group_by_tech(supply)
 
     if carrier == "AC":
-        supply = _add_curtailment(n, resolver, node, aggregate, supply)
-        supply = _add_v2g(n, resolver, node, aggregate, supply)
+        supply = _add_curtailment(n, resolver, locations, supply)
+        supply = _add_v2g(n, resolver, locations, supply)
 
     supply = supply.drop(columns=[c for c in supply.columns if c in _DROP_GROUPS], errors="ignore")
 
@@ -161,7 +165,7 @@ _ONE_PORT_COMPONENT = {
 }
 
 
-def _branch_flows(n, resolver, node: str, buses: pd.Index, aggregate: bool) -> pd.DataFrame:
+def _branch_flows(n, resolver, buses: pd.Index, locations: list[str] | None) -> pd.DataFrame:
     parts: list[pd.DataFrame] = []
     for component in n.iterate_components(n.branch_components):
         n_port = 4 if component.name == "Link" else 2
@@ -175,11 +179,9 @@ def _branch_flows(n, resolver, node: str, buses: pd.Index, aggregate: bool) -> p
             connected = static.index[static[bus_col].isin(buses)]
             if not len(connected):
                 continue
-            if aggregate:
-                sel = connected
-            else:
-                node_mask = resolver.mask(comp_key, node, bus_attr=bus_col)
-                sel = connected.intersection(static.index[node_mask])
+            sel = connected.intersection(
+                resolver.select_locations(comp_key, locations, bus_attr=bus_col)
+            )
             if not len(sel):
                 continue
             pnl = (-1) * component.pnl[key].loc[:, sel]
@@ -190,7 +192,7 @@ def _branch_flows(n, resolver, node: str, buses: pd.Index, aggregate: bool) -> p
 
 
 def _one_port_flows(
-    n, resolver, node: str, buses: pd.Index, aggregate: bool, supply: pd.DataFrame
+    n, resolver, buses: pd.Index, locations: list[str] | None, supply: pd.DataFrame
 ) -> pd.DataFrame:
     parts: list[pd.DataFrame] = [supply] if len(supply.columns) else []
     for component in n.iterate_components(n.one_port_components):
@@ -199,11 +201,7 @@ def _one_port_flows(
         connected = static.index[static.bus.isin(buses)]
         if not len(connected):
             continue
-        if aggregate:
-            sel = connected
-        else:
-            node_mask = resolver.mask(comp_key, node)
-            sel = connected.intersection(static.index[node_mask])
+        sel = connected.intersection(resolver.select_locations(comp_key, locations))
         if not len(sel):
             continue
         pnl = component.pnl["p"].loc[:, sel].multiply(static.loc[sel, "sign"])
@@ -215,8 +213,8 @@ def _one_port_flows(
     return pd.concat(parts, axis=1)
 
 
-def _import_export(n, resolver, node: str, aggregate: bool) -> pd.Series:
-    if aggregate:
+def _import_export(n, resolver, locations: list[str] | None) -> pd.Series:
+    if locations is None:
         ac_out = n.lines_t.p0.sum(axis=1)
         ac_in = n.lines_t.p1.sum(axis=1)
         dc = n.links.carrier == "DC"
@@ -225,13 +223,13 @@ def _import_export(n, resolver, node: str, aggregate: bool) -> pd.Series:
     else:
         bus0 = resolver.bus_nodes(n.lines.bus0)
         bus1 = resolver.bus_nodes(n.lines.bus1)
-        ac_out = n.lines_t.p0.loc[:, bus0 == node].sum(axis=1)
-        ac_in = n.lines_t.p1.loc[:, bus1 == node].sum(axis=1)
+        ac_out = n.lines_t.p0.loc[:, bus0.isin(locations)].sum(axis=1)
+        ac_in = n.lines_t.p1.loc[:, bus1.isin(locations)].sum(axis=1)
         dc_links = n.links.index[n.links.carrier == "DC"]
         dc_bus0 = resolver.bus_nodes(n.links.loc[dc_links, "bus0"])
         dc_bus1 = resolver.bus_nodes(n.links.loc[dc_links, "bus1"])
-        dc_out = n.links_t.p0.loc[:, dc_links[dc_bus0 == node]].sum(axis=1)
-        dc_in = n.links_t.p1.loc[:, dc_links[dc_bus1 == node]].sum(axis=1)
+        dc_out = n.links_t.p0.loc[:, dc_links[dc_bus0.isin(locations)]].sum(axis=1)
+        dc_in = n.links_t.p1.loc[:, dc_links[dc_bus1.isin(locations)]].sum(axis=1)
     merged = pd.concat([ac_out, ac_in, dc_out, dc_in], axis=1)
     return -merged.sum(axis=1)
 
@@ -248,7 +246,7 @@ def _group_by_tech(supply: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_curtailment(
-    n, resolver, node: str, aggregate: bool, supply: pd.DataFrame
+    n, resolver, locations: list[str] | None, supply: pd.DataFrame
 ) -> pd.DataFrame:
     out = supply.copy()
     for kind, supply_key, curtail_key in (
@@ -256,7 +254,7 @@ def _add_curtailment(
         ("onwind", "onshore wind", "onshore curtailment"),
         ("offwind", "offshore wind", "offshore curtailment"),
     ):
-        curtail = _renewable_curtailment(n, resolver, node, aggregate, kind)
+        curtail = _renewable_curtailment(n, resolver, locations, kind)
         if curtail is None:
             continue
         if supply_key in out.columns:
@@ -268,32 +266,28 @@ def _add_curtailment(
 
 
 def _renewable_curtailment(
-    n, resolver, node: str, aggregate: bool, kind: str
+    n, resolver, locations: list[str] | None, kind: str
 ) -> pd.Series | None:
     gens = n.generators.index[n.generators.index.str.contains(kind, case=False)]
-    if not aggregate:
-        node_gens = resolver.select("generators", node)
-        gens = gens.intersection(node_gens)
+    gens = gens.intersection(resolver.select_locations("generators", locations))
     if not len(gens):
         return None
     available = n.generators_t.p_max_pu[gens].multiply(n.generators.p_nom_opt[gens], axis=1)
     return (available - n.generators_t.p[gens]).sum(axis=1)
 
 
-def _add_v2g(n, resolver, node: str, aggregate: bool, supply: pd.DataFrame) -> pd.DataFrame:
+def _add_v2g(n, resolver, locations: list[str] | None, supply: pd.DataFrame) -> pd.DataFrame:
     if "V2G" not in n.carriers.index:
         return supply
     v2g_links = n.links.index[n.links.carrier == "V2G"]
     if not len(v2g_links):
         return supply
-    if aggregate:
-        v2g = n.links_t.p1.loc[:, v2g_links].sum(axis=1)
-    else:
-        node_mask = resolver.mask("links", node, bus_attr="bus1")
-        sel = v2g_links.intersection(n.links.index[node_mask])
-        if not len(sel):
-            return supply
-        v2g = n.links_t.p1.loc[:, sel].sum(axis=1)
+    sel = v2g_links.intersection(
+        resolver.select_locations("links", locations, bus_attr="bus1")
+    )
+    if not len(sel):
+        return supply
+    v2g = n.links_t.p1.loc[:, sel].sum(axis=1)
     out = supply.copy()
     grid_key = "electricity distribution grid"
     if grid_key not in out.columns:

@@ -61,7 +61,6 @@ import logging
 import pandas as pd
 
 from ..context import BuildContext
-from ..nodes import PSEUDO_LOCATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -109,39 +108,15 @@ _DUPLICATE_DEMAND_SOURCES = ("gas for industry", "solid biomass for industry")
 # --------------------------------------------------------------------------
 # node membership
 # --------------------------------------------------------------------------
-def _link_nodes(ctx: BuildContext, network, horizon: int) -> pd.Series:
-    """Map every link to a node code.
-
-    A link is attributed to the first of ``bus0, bus1, ...`` that sits in a
-    real node.  ``bus0`` alone is not enough: PyPSA-Eur keeps the oil, coal and
-    methanol commodity buses at the pseudo-location ``EU``, so ``BE naphtha for
-    industry`` (``bus0 = "EU oil"``, ``bus1 = "BE naphtha for industry"``)
-    would otherwise belong to no node at all and the whole oil demand of every
-    region would silently disappear.  The legacy substring match on the link
-    *name* got this case right by accident and the ``BE``/``BEWAL`` case wrong.
-    """
-    resolver = ctx.resolver(horizon)
-    links = network.links
-    nodes = pd.Series(pd.NA, index=links.index, dtype=object)
-    bus_columns = [c for c in links.columns if c.startswith("bus")]
-    for column in sorted(bus_columns, key=lambda c: int(c[3:] or 0)):
-        candidate = resolver.bus_nodes(links[column])
-        candidate = candidate.where(~candidate.isin(PSEUDO_LOCATIONS))
-        nodes = nodes.fillna(candidate)
-    return nodes.fillna(resolver.bus_nodes(links["bus0"]))
-
-
 def _select(ctx: BuildContext, network, node: str, component: str, horizon: int) -> pd.Index:
-    """Index of the rows of ``component`` that belong to ``node``."""
-    static = getattr(network, component)
-    if ctx.is_aggregate(node):
-        return static.index
-    resolver = ctx.resolver(horizon)
-    if resolver.strategy == "substring":  # legacy byte-comparison mode
-        return static.index[resolver.mask(component, node)]
-    if component == "links":
-        return static.index[_cached_link_nodes(ctx, horizon) == node]
-    return static.index[resolver.bus_nodes(static["bus"]) == node]
+    """Index of the rows of ``component`` that belong to ``node``.
+
+    Delegates to :meth:`BuildContext.component_index` so group aggregates
+    filter to ``members_of(node)`` and the study-wide aggregate stays unfiltered.
+    ``network`` is unused (membership reads ``ctx.networks[horizon]``); kept so
+    call sites stay stable.
+    """
+    return ctx.component_index(horizon, component, node)
 
 
 # --------------------------------------------------------------------------
@@ -193,14 +168,6 @@ def _link_port_totals(ctx: BuildContext, horizon: int) -> dict[int, pd.Series]:
         }
 
     return _cache_get(ctx, ("link_port_totals", horizon), factory)
-
-
-def _cached_link_nodes(ctx: BuildContext, horizon: int) -> pd.Series:
-    return _cache_get(
-        ctx,
-        ("link_nodes", horizon),
-        lambda: _link_nodes(ctx, ctx.networks[horizon], horizon),
-    )
 
 
 def _one_port_totals(ctx: BuildContext, horizon: int, component: str) -> pd.Series:
@@ -449,18 +416,37 @@ def _resource(ctx: BuildContext, names, **kwargs):
     return None
 
 
+def _table_codes(ctx: BuildContext, node: str, index) -> list[str]:
+    """Index labels to sum in a per-region table for ``node``.
+
+    Study-wide: every real code present in ``index``.  Group: its members,
+    falling back to the group code itself when the table is country-level
+    (e.g. a ``BE`` row for members ``BEVLG``/``BEWAL``/``BEBRU``).  Real
+    node: ``[node]`` when present.
+    """
+    locations = ctx.locations_for(node) if hasattr(ctx, "locations_for") else None
+    if locations is None:
+        if hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node):
+            return [c for c in ctx.nodes.real_codes if c in index]
+        locations = [node]
+    present = [c for c in locations if c in index]
+    if present:
+        return present
+    if node in index:
+        return [node]
+    return []
+
+
 def _node_value(ctx: BuildContext, series: pd.Series, node: str) -> float:
-    """One node's value out of a per-region series (sum for the aggregate)."""
+    """One node's value out of a per-region series (sum for aggregates)."""
     numeric = pd.to_numeric(series, errors="coerce")
-    if ctx.is_aggregate(node):
-        known = [c for c in ctx.nodes.real_codes if c in numeric.index]
-        return float(numeric.reindex(known).sum())
-    if node not in numeric.index:
-        logger.warning(
-            "node %s absent from exogenous table (index: %s)", node, list(numeric.index)[:8]
-        )
-        return 0.0
-    return float(numeric.loc[node])
+    codes = _table_codes(ctx, node, numeric.index)
+    if codes:
+        return float(numeric.reindex(codes).sum())
+    logger.warning(
+        "node %s absent from exogenous table (index: %s)", node, list(numeric.index)[:8]
+    )
+    return 0.0
 
 
 def _rail_demand(ctx: BuildContext, node: str, horizon: int) -> float:

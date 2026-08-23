@@ -36,15 +36,20 @@ PYTHONPATH=src python -m pypsa2html.cli build -c config/negawatt.yaml -s ref -o 
 | Layer | Module | State |
 |---|---|---|
 | Config, nodes, taxonomy, manifest, context, networks | — | **done**, tested |
+| Nested aggregates (`nodes.groups`, `members_of`, `component_index`) | `nodes` `context` | **done**, tested |
 | Build loop, CLI, rendering, navigation | — | **done**, tested |
-| Energy / carbon extraction | `extract/flows.py`, `extract/emissions.py` | **done**, needs review + tests |
-| Indicators, Sankeys, indicator charts | `indicators.py`, `charts/{base,sankey,indicators}.py` | **done**, needs tests |
-| Costs, capacities, demands | `charts/results.py` | **T1 — not started** |
-| Multi-scenario overview | `charts/scenario.py` | **T2 — not started** |
-| Dispatch time series | `charts/dispatch.py` | **T3 — not started** |
-| Maps | `charts/maps.py` | **T4 — not started** |
+| Energy / carbon extraction | `extract/flows.py`, `extract/emissions.py` | **done**, tested |
+| Indicators, Sankeys, indicator charts | `indicators.py`, `charts/{base,sankey,indicators}.py` | **done**, tested |
+| Costs, capacities, demands | `extract/tables.py`, `charts/results.py` | **T1 — done** |
+| Multi-scenario overview | `charts/scenario.py` | **T2 — done** |
+| Dispatch time series | `charts/dispatch.py` | **T3 — done** |
+| Maps | `charts/maps.py` | **T4 — done** |
+| EV charging (natural vs smart, V2G) | `extract/ev.py`, `charts/ev.py` | **new** — not a port, see [D16](DESIGN_DECISIONS.md#d16--ev-charging-is-detected-by-topology-and-the-counterfactual-is-energy-neutral) |
 
-22 of 34 manifest builders are unimplemented. List them with:
+T1–T4 below are the original porting briefs (kept for the bug list). The
+chart modules exist; remaining work is T5–T10 plus model-side decisions.
+
+List unresolved builders with:
 
 ```bash
 PYTHONPATH=src python -c "

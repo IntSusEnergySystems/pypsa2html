@@ -80,6 +80,7 @@ biomass-to-liquid term of the fossil-oil node (``bm_ghg -> oil_ghg`` type
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
@@ -420,6 +421,27 @@ def _real_codes(ctx) -> list[str]:
     return list(ctx.nodes.real_codes)
 
 
+def _study_wide(ctx, node: str) -> bool:
+    """Closed-system graph algebra applies only to the study-wide sum."""
+    if hasattr(ctx, "is_study_wide"):
+        return ctx.is_study_wide(node)
+    return ctx.is_aggregate(node)
+
+
+def _table_codes(ctx, node: str, index) -> list[str]:
+    """Index labels to sum in a per-region table for ``node``."""
+    members = ctx.members_of(node) if hasattr(ctx, "members_of") else None
+    if ctx.is_aggregate(node) and members is None:
+        return [c for c in _real_codes(ctx) if c in index]
+    wanted = members if members is not None else [node]
+    present = [c for c in wanted if c in index]
+    if present:
+        return present
+    if node in index:
+        return [node]
+    return []
+
+
 def _domestic_production(ctx, node: str, table: pd.DataFrame, years, what: str) -> pd.Series:
     """Exogenous domestic fossil production for ``node``, in TWh/year.
 
@@ -427,31 +449,35 @@ def _domestic_production(ctx, node: str, table: pd.DataFrame, years, what: str) 
     raised ``KeyError`` for any node not in the packaged table -- every
     sub-national node of pypsa-wal, for instance.
     """
-    if ctx.is_aggregate(node):
-        rows = table.reindex(_real_codes(ctx)).dropna(how="all")
-        if rows.empty:
-            logger.warning(
-                "%s: no region of %s appears in the table; assuming no domestic "
-                "production for the aggregate node", what, _real_codes(ctx),
-            )
-            return _zeros(pd.Index(years))
-        return _interpolate_to(rows.sum(numeric_only=True), years)
-
-    if node not in table.index:
-        logger.info(
-            "%s: no entry for node %r, assuming zero domestic production", what, node
+    codes = _table_codes(ctx, node, table.index)
+    if not codes:
+        logger.warning(
+            "%s: no region of %s appears in the table; assuming no domestic "
+            "production for node %s", what, _real_codes(ctx), node,
         )
         return _zeros(pd.Index(years))
-    return _interpolate_to(table.loc[node], years)
+    rows = table.reindex(codes).dropna(how="all")
+    if rows.empty:
+        logger.warning(
+            "%s: no region of %s appears in the table; assuming no domestic "
+            "production for node %s", what, codes, node,
+        )
+        return _zeros(pd.Index(years))
+    return _interpolate_to(rows.sum(numeric_only=True), years)
 
 
 def _region_value(totals: pd.Series, node: str) -> float:
-    """Look a node up in a per-bus series, tolerating a clustering suffix."""
+    """Look a node up in a per-bus series, tolerating a clustering suffix.
+
+    Exact match first.  Clustered names look like ``BE1 0`` for node ``BE``
+    — a digit after the code — and never ``BEWAL`` (no prefix matching).
+    """
     if node in totals.index:
         return float(totals.loc[node])
-    prefixed = totals[totals.index.astype(str).str.startswith(node)]
-    if len(prefixed):
-        return float(prefixed.sum())
+    names = totals.index.astype(str)
+    clustered = totals[names.str.match(rf"^{re.escape(node)}\d")]
+    if len(clustered):
+        return float(clustered.sum())
     return float("nan")
 
 
@@ -480,13 +506,18 @@ def biomass_potential(ctx, node: str, years: Sequence[int]) -> pd.Series | None:
             continue
         totals = raw[available].sum(axis=1) / 1e6  # MWh -> TWh
         totals = totals.groupby(totals.index).sum()
-        if ctx.is_aggregate(node):
-            selected = [
-                _region_value(totals, code) for code in _real_codes(ctx)
-            ]
-            values[year] = float(np.nansum(selected))
+        members = ctx.members_of(node) if hasattr(ctx, "members_of") else None
+        if ctx.is_aggregate(node) and members is None:
+            lookup = _real_codes(ctx)
+        elif members is not None:
+            lookup = members
         else:
+            lookup = [node]
+        selected = [_region_value(totals, code) for code in lookup]
+        if np.isnan(selected).all() and node not in lookup:
             values[year] = _region_value(totals, node)
+        else:
+            values[year] = float(np.nansum(selected))
 
     if not values:
         logger.info(
@@ -530,7 +561,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     se = tax.codes_of_type("SECONDARY_ENERGIES")
     pe = tax.codes_of_type("PRIMARY_ENERGIES")
     years = flows.index
-    aggregate = ctx.is_aggregate(node)
+    aggregate = _study_wide(ctx, node)
 
     def fe_consumption() -> pd.DataFrame:
         return sum_by(flows, where="Source", nodes=fe, by="Source")
@@ -671,7 +702,7 @@ def _close_carbon_graph(
     pe = tax.codes_of_type("PRIMARY_ENERGIES")
     fe = tax.codes_of_type("FINAL_ENERGIES")
     years = flows_co2.index
-    aggregate = ctx.is_aggregate(node)
+    aggregate = _study_wide(ctx, node)
 
     pe_supply = sum_by(flows, where="Source", nodes=pe, by="Source")
     fe_use = sum_by(flows, where="Source", nodes=fe, by="Source")

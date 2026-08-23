@@ -128,6 +128,9 @@ nodes:
   focus: BEWAL                         # the main region of interest
   labels: {BEWAL: Wallonia, BEVLG: Flanders}
   aggregate: {enabled: true, code: ALL, label: All regions}
+  # Extra synthetic nodes. Explicit `members` only — never `.str[:2]`.
+  # groups:
+  #   - {code: BE, label: Belgium, members: [BEVLG, BEWAL, BEBRU]}
 
 scenarios:
   - {name: scen_demande_haute, label: High demand, results_dir: results/.../scen_demande_haute}
@@ -151,8 +154,9 @@ texts:                                 # optional narrative HTML above a section
     BEWAL:   "<p>Wallonia-specific commentary.</p>"
 ```
 
-Two worked examples ship in [`config/`](config/): `negawatt.yaml` and
-`pypsa-wal.yaml`.
+Two worked examples ship in [`config/`](config/): `negawatt.yaml` (NUTS-1 Belgian
+regions plus a `BE` group and an `EU` study-wide sum; landing `focus: BE`) and
+`pypsa-wal.yaml` (already regional; no extra `BE` group).
 
 ### Point of attention — capacity charts
 
@@ -167,10 +171,44 @@ By default (`features.capacity_filter: bus_carrier`) capacity charts keep only
 *service* bus (power) or Store carriers on battery / H₂ / gas / water
 buses (storage).  Using the component type matters: the same carrier name can
 be a fuel-potential Generator and a power-plant Link (e.g. `lignite`).
-Classification uses the solved network topology, so new technologies are
-handled without a per-carrier denylist.  Set `features.capacity_filter: off`
-only if you intentionally want the unfiltered CSV.  An optional `__omit__`
-group in `tech_groups.csv` remains available as an extra name denylist.
+**Power (MW) and storage (MWh) are never summed into one bar** (SEPIA C1) —
+Stores are excluded from the power chart.  Classification uses the solved
+network topology, so new technologies are handled without a per-carrier
+denylist.  Set `features.capacity_filter: off` only if you intentionally want
+the unfiltered CSV.  An optional `__omit__` group in `tech_groups.csv` remains
+available as an extra name denylist.
+
+### Point of attention — EV charging
+
+The dispatch page carries three electric-vehicle sections (`ev_charging_winter`,
+`ev_charging_summer`, `ev_energy_by_mode`) that separate the part of the fleet's
+electricity the optimiser **cannot** move from the part it can:
+
+- **natural (uncontrolled) charging** — a Load pinned to an observed charging
+  profile, sitting *directly on an electricity bus*;
+- **smart charging** — the grid-side draw of the charger Link into the
+  fleet-battery bus, an output of the optimisation;
+- **V2G** — energy returned to the grid, drawn below the axis.
+
+Only the pypsa-wal fork splits the two (`sector.bev_natural_charging_split`);
+upstream PyPSA-Eur and the négaWatt fork put the whole fleet behind the charger.
+Both work, because detection reads the **topology** rather than carrier names —
+any Link into a fleet-battery bus charges, any Link out of one discharges. That
+matters concretely: the same carrier is spelled `EV charger` upstream and
+`BEV charger` in pypsa-wal, so a name match would have produced an empty chart
+on one of the two. A model with no electric vehicles simply skips the sections.
+
+The dashed line is the same energy charged **uncontrolled** instead of
+optimised. Its shape is the model's own natural-charging profile where the fork
+provides one, and otherwise the driving profile — which is exactly what
+PyPSA-Eur charges when flexibility is off, since without a fleet battery the
+energy balance forces the charger to follow driving demand. It is scaled to
+carry the same weighted energy as the actual net draw over the plotted window,
+so the difference between the two curves is purely one of *timing*; the volume
+cost of flexibility (charger and V2G round-trip losses) is reported by
+`ev_energy_by_mode` instead, as the gap between the stacked bar and the
+"delivered to vehicles" marker. See
+[D16](docs/DESIGN_DECISIONS.md#d16--ev-charging-is-detected-by-topology-and-the-counterfactual-is-energy-neutral).
 
 ### Output
 
@@ -203,12 +241,15 @@ pypsa2html/
 │   ├── cli.py                     build / inspect / pages
 │   ├── extract/                   solved network → tidy flow tables
 │   │   ├── flows.py                 energy flows
-│   │   └── emissions.py             carbon flows
+│   │   ├── emissions.py             carbon flows
+│   │   ├── balance.py               nodal supply/demand time series
+│   │   └── ev.py                    EV charging: natural vs smart, V2G
 │   ├── charts/                    tidy tables → plotly figures
 │   │   ├── base.py                  shared chart helpers
 │   │   ├── sankey.py  indicators.py      energy/carbon Sankeys, indicator charts
 │   │   ├── results.py               costs, capacities, demands
 │   │   ├── dispatch.py  maps.py     time series, geographic maps
+│   │   ├── ev.py                    EV charging weeks + annual split
 │   │   └── scenario.py              multi-scenario overview
 │   ├── report/                    HTML assembly (jinja2 template + renderer)
 │   └── data/                      the packaged taxonomy — CSV + YAML
@@ -288,11 +329,13 @@ nine files by hardcoded path that Snakemake therefore could not track.
 | Layer | Module | State |
 |---|---|---|
 | Config, nodes, taxonomy, manifest | `config` `nodes` `datafiles` `pages` `networks` `context` | done, tested |
+| Nested aggregates (`nodes.groups`) | `nodes` `context` | done, tested |
 | Build loop, CLI, rendering | `build` `cli` `report` | done, tested |
-| Energy / carbon extraction | `extract/flows` `extract/emissions` | in progress |
-| Indicators, Sankeys, indicator charts | `indicators` `charts/base` `charts/sankey` `charts/indicators` | in progress |
-| Costs, capacities, demands | `charts/results` | not started |
-| Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | not started |
+| Energy / carbon extraction | `extract/flows` `extract/emissions` | done, tested |
+| Indicators, Sankeys, indicator charts | `indicators` `charts/base` `charts/sankey` `charts/indicators` | done, tested |
+| Costs, capacities, demands | `extract/tables` `charts/results` | done, tested |
+| Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | done, tested |
+| EV charging (natural vs smart, V2G) | `extract/ev` `charts/ev` | new, tested |
 
 ---
 

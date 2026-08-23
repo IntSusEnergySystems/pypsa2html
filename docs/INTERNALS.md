@@ -21,7 +21,7 @@ set in their `__main__` blocks.
 | `config` | `Config` | the validated YAML config |
 | `scenario` | `ScenarioConfig` | `.name`, `.label`, `.results_dir` |
 | `taxonomy` | `Taxonomy` | the validated CSV tables |
-| `nodes` | `NodeSet` | iterable of `Node(code, label, aggregate)` |
+| `nodes` | `NodeSet` | iterable of `Node(code, label, aggregate, members)` |
 | `networks` | `NetworkCache` | `ctx.networks[2030]` → `pypsa.Network`, lazy + LRU |
 | `results_dir`, `resources_dir` | `Path` | absolute |
 | `horizons` | `list[int]` | discovered or configured; **never hardcode years** |
@@ -31,9 +31,21 @@ Methods:
 
 - `ctx.horizon_weights() -> Series` — years represented by each horizon, for
   cumulative sums. Derived from the gaps between horizons. **Never write
-  `*= 10`.**
+  `*= 10`.** Annual GHG series are plotted as annual; cumulative charts
+  multiply by these weights, not by a decade hack.
 - `ctx.resolver(horizon) -> NodeResolver` — see §2.
-- `ctx.is_aggregate(node) -> bool` — replaces every `if country != 'EU'`.
+- `ctx.is_aggregate(node) -> bool` — true for the study-wide sum *and* for
+  every group aggregate. Replaces `if country != 'EU'`.
+- `ctx.is_study_wide(node) -> bool` — true only when `node` is the unfiltered
+  sum of every real location (`members is None`, or a group equal to all
+  real codes). Use this for closed-system algebra (no trade), not
+  `is_aggregate`.
+- `ctx.members_of(node) -> list[str] | None` — `None` for a real node and for
+  the study-wide aggregate; a **sorted** member list for a group.
+- `ctx.locations_for(node) -> list[str] | None` — locations to keep.
+  `None` means do not filter (study-wide). A list is the exact codes.
+- `ctx.component_index(horizon, component, node) -> pd.Index` — the single
+  membership helper. Charts and extractors must not fork this logic.
 - `ctx.read_csv(relpath, base='results'|'resources', **kw)` — cached; returns
   `None` if the file is missing (do **not** let that raise).
 - `ctx.read_excel(...)` — same.
@@ -43,23 +55,30 @@ Methods:
 ## 2. `NodeResolver` (`pypsa2html/nodes.py`)
 
 Maps PyPSA components to nodes. **Never use `.filter(like=country)` or
-`.str[:2]` in new code.**
+`.str[:2]` in new code.** There is no prefix matching: `BE` is never treated
+as matching location `BEWAL`. Group membership is always an explicit
+`members` list in the config.
 
 ```python
 r = ctx.resolver(horizon)
 r.mask("links", "BEWAL")               # boolean Series over n.links.index
 r.select("generators", "BEWAL")        # Index of matching generator names
+r.select_locations("links", ["BEWAL", "BEVLG"])
 r.bus_nodes(n.links.bus1)              # Series of bus names -> node codes
 ```
 
-For the aggregate node there is no mask: skip the filter entirely.
+Use `ctx.component_index` instead of branching on `is_aggregate`:
 
 ```python
-if ctx.is_aggregate(node):
-    sel = static.index                      # everything
-else:
-    sel = ctx.resolver(h).select("links", node)
+sel = ctx.component_index(h, "links", node)
+# real node          → that location
+# group (members)    → those locations
+# study-wide         → every row (no filter)
 ```
+
+If a group's `code` is already a detected location, the group is omitted with
+a warning (the real node already has pages). Missing members are skipped the
+same way. There is no ISO2 / prefix fallback.
 
 ## 3. Extraction (`pypsa2html/extract/`)
 
@@ -87,6 +106,19 @@ Rules:
 - Values below `ctx.config.model.flow_threshold` are dropped **by magnitude**
   (`abs(value) < threshold`) so net-negative CO2 rows survive. The legacy
   `value >= 0.1` test deleted every negative value.
+
+Two extractors return **time-indexed** frames instead of the long flow table,
+because their charts are time series rather than year columns:
+
+| Module | Returns | Unit |
+|---|---|---|
+| `extract/balance.py::energy_balance` | snapshots × technology group | MW |
+| `extract/ev.py::charging_profiles` | `EVCharging` — snapshots × charging mode, plus weights, state of charge and the shape provenance | MW (%) |
+
+They obey the same rules: node membership through `ctx.resolver` /
+`ctx.locations_for`, missing input → warning and `None`, no year or node
+literals. Both are windowed by the caller (`start` / `stop`), and both are
+sign-consistent: positive means "drawn from the bus being balanced".
 
 ## 4. Charts (`pypsa2html/charts/`)
 

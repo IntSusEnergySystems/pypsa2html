@@ -18,13 +18,17 @@ project:
 model:
   clusters: adm
   opts: ""
+  # Must match the solved networks' sector_opts token (filename pattern).
   sector_opts: 24h
   planning_horizons: null      # discovered from results/<scenario>/networks/
 
 nodes:
   detect: true
-  focus: BE                    # Belgium is the main region of interest
+  focus: BE                    # Belgium group (sum of BEVLG/BEWAL/BEBRU)
   labels:
+    BEVLG: Flanders
+    BEWAL: Wallonia
+    BEBRU: Brussels
     BE: Belgium
     DE: Germany
     FR: France
@@ -38,6 +42,12 @@ nodes:
     # New projects should leave it at the default "ALL".
     code: EU
     label: 5 countries
+  # Belgium total = the three NUTS-1 regions, not the 5-country sum.
+  # Explicit members only — never `.str[:2]` / prefix matching.
+  groups:
+    - code: BE
+      label: Belgium
+      members: [BEVLG, BEWAL, BEBRU]
 
 scenarios:
   - name: ref

@@ -31,7 +31,7 @@ def _toy_network() -> SimpleNamespace:
     )
     generators = pd.DataFrame(
         {
-            "bus": ["b_ac", "b_biogas", "b_bm", "b_heat", "b_gas", "b_lignite"],
+            "bus": ["b_ac", "b_biogas", "b_bm", "b_heat", "b_gas", "b_lignite", "b_ac"],
             "carrier": [
                 "solar",
                 "biogas",
@@ -39,9 +39,10 @@ def _toy_network() -> SimpleNamespace:
                 "urban central heat vent",
                 "gas",
                 "lignite",  # fuel potential — must NOT keep as Generator
+                "load",  # load-shedding — must NOT keep
             ],
         },
-        index=["g1", "g2", "g3", "g4", "g5", "g6"],
+        index=["g1", "g2", "g3", "g4", "g5", "g6", "g7"],
     )
     links = pd.DataFrame(
         {
@@ -100,7 +101,16 @@ def test_power_keeps_service_attached_drops_fuel_and_vents():
     assert ("Generator", "solid biomass") not in power
     assert ("Generator", "gas") not in power
     assert ("Generator", "urban central heat vent") not in power
+    assert ("Generator", "load") not in power
     assert ("Link", "naphtha for industry") not in power
+
+
+def test_capacity_filter_drops_load_shedding_and_vents():
+    """SEPIA C3: `load` / inf load-shedding and vents stay off the GW axis."""
+    power, _storage = capacity_keys_from_network(_toy_network())
+    carriers = {c for _comp, c in power}
+    assert "load" not in carriers
+    assert not any("vent" in c for c in carriers)
 
 
 def test_storage_keeps_energy_stores_drops_commodity_stocks():

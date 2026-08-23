@@ -46,7 +46,10 @@ def _is_service_bus(bus_carrier: Any) -> bool:
 
 def _is_junk_name(carrier: Any) -> bool:
     name = str(carrier)
-    return name == "load" or "vent" in name or "to air" in name
+    lowered = name.lower()
+    if lowered in {"load", "load shedding"}:
+        return True
+    return "vent" in lowered or "to air" in lowered or "shedding" in lowered
 
 
 def _is_energy_store_bus(bus_carrier: Any) -> bool:

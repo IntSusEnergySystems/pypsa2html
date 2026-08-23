@@ -73,6 +73,38 @@ existing `results/ref/htmls/EU_*.html`. New projects should not.
 
 ---
 
+## D15 — Nested aggregates use explicit member lists, never ISO2 slicing
+
+**Decided.** `nodes.aggregate` remains the study-wide sum of every real
+location. Extra synthetic nodes are declared under `nodes.groups` with an
+explicit `members` list:
+
+```yaml
+nodes:
+  aggregate: {enabled: true, code: ALL, label: All regions}
+  groups:
+    - {code: BE, label: Belgium, members: [BEVLG, BEWAL, BEBRU]}
+```
+
+The legacy SEPIA tool used `.str[:2]` / `filter(like="BE")`, which treats
+`BEWAL` as Belgium *and* as a match for `BE`. Prefix matching is rejected
+as a config key and is not implemented.
+
+| | Pro | Con |
+|---|---|---|
+| **Explicit members (chosen)** | `BE` and `BEWAL` can coexist; works for NUTS-1, ISO2, and numbered clusters; missing members warn and skip (INTERNALS §6) | The modeller must list the codes |
+| *Prefix / ISO2 slice (rejected)* | Shorter YAML | Collides the moment one code is a prefix of another — the original `BE`/`BEWAL` bug |
+
+`Node.members` is `None` on the study-wide aggregate (meaning every real
+code) and a sorted tuple on a group. `ctx.component_index` is the only
+membership helper extractors and charts should call. If a group's `code`
+is already a detected location, the group is omitted with a warning so the
+same config works before and after a model splits `BE` into NUTS-1 nodes.
+
+**Reversibility: Easy** — one config block.
+
+---
+
 ## D4 — Planning horizons are discovered, and interval weights derived
 
 **Decided.** `model.planning_horizons: null` scans the results directory. Only
@@ -311,3 +343,66 @@ replaced by writing the whole site into one directory. Deployment is out of
 scope for a library.
 
 **Reversibility: Easy** — they can be added as extra page kinds later.
+
+---
+
+## D16 — EV charging is detected by topology, and the counterfactual is energy-neutral
+
+**Decided.** The three EV sections on the dispatch page find their components
+by reading the network's *topology*, and compare the optimised charging profile
+against an uncontrolled one that carries the **same energy** over the plotted
+window.
+
+### Detection
+
+| | Pro | Con |
+|---|---|---|
+| **Topology (chosen)** | Any Link into a fleet-battery bus charges, any Link out of one is V2G; an EV Load on an electricity bus is pinned in time, one on the fleet bus is driving demand | One indirection to read |
+| *Carrier names (rejected)* | Obvious at the call site | The carrier is `EV charger` upstream and in négaWatt but `BEV charger` in pypsa-wal, so a name match renders an empty chart on one of the two — exactly the class of bug D2/D15 exist to prevent |
+
+Only the bus carrier is matched by name (`EV battery`, case-insensitive
+substring), because that is the one label the whole PyPSA-Eur family shares.
+A model with no fleet-battery bus returns a falsy `EVComponents`, the builders
+return `None`, and the sections are simply absent (D9).
+
+Consequence worth stating: whether the *split* exists is a property of the
+model, not of the report. `sector.bev_natural_charging_split` in pypsa-wal
+pins a share of demand to Elia's observed profile; upstream PyPSA-Eur and
+négaWatt put the whole fleet behind the charger. The same chart renders both,
+with the natural-charging series simply absent in the second case — not
+present-and-zero, which would put a dead entry in the legend.
+
+### The dashed counterfactual
+
+The shape uncontrolled charging would follow is, in order of preference:
+
+1. the model's own natural-charging load — an observed profile, so it is the
+   honest answer wherever the fork provides one;
+2. the driving profile of the optimised fleet. Without a fleet battery,
+   PyPSA-Eur's energy balance on the fleet bus forces the charger to follow
+   driving demand exactly, so this *is* what the same model does with
+   flexibility switched off — not an invented shape.
+
+That shape is then scaled to the actual net grid draw of the window:
+
+| | Pro | Con |
+|---|---|---|
+| **Energy-neutral (chosen)** | The two curves enclose the same area, so the difference is unambiguously a shift in *time*; a reader cannot mistake a conversion loss for a shifted peak | Does not show, on that chart, that flexibility costs energy |
+| *Delivered-energy basis (rejected)* | Shows the loss | The dashed curve then encloses less area than the stack for two unrelated reasons at once (timing *and* losses), and the natural reading — "energy disappeared" — is wrong |
+
+The volume side is not dropped, it is moved: `ev_energy_by_mode` reports it
+annually as the gap between the stacked bar (grid draw) and the
+"delivered to vehicles" marker (what reaches the cars). Charger and V2G
+round-trip losses are visible there, per horizon, without overloading the
+weekly chart.
+
+The chart caption states the peak comparison rather than implying it, because
+the honest answer is not always "smart charging shaves the peak": with no
+distribution-grid constraint the optimiser concentrates charging into the
+cheapest hours, and on the pypsa-wal 2025 horizon the optimised peak is *above*
+the uncontrolled one. A chart that only ever showed peak shaving would be
+telling a story the model does not support.
+
+**Reversibility: Easy** — `plots: {ev_charging_winter: false, …}` switches the
+sections off; the counterfactual rule is one function
+(`extract.ev._counterfactual`).

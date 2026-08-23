@@ -26,6 +26,14 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
+
+def _study_wide_panels(ctx, node: str) -> bool:
+    """Faceted CHP/PtL swap is for the study-wide sum, not a group aggregate."""
+    if hasattr(ctx, "is_study_wide"):
+        return ctx.is_study_wide(node)
+    return hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node)
+
+
 #: MW -> GW / MWh -> GWh for capacity charts.
 _CAPACITY_SCALE = 1e-3
 
@@ -202,7 +210,7 @@ def capacities_by_tech(ctx, node: str, section) -> go.Figure | None:
     add_chart_data(ctx, node, section.title, section.unit, table.T)
     groups = (
         _POWER_GROUPS_AGGREGATE
-        if hasattr(ctx, "is_aggregate") and ctx.is_aggregate(node)
+        if _study_wide_panels(ctx, node)
         else _POWER_GROUPS
     )
     return _faceted_capacity_chart(table, groups, unit=section.unit)

@@ -570,7 +570,8 @@ def combine_charts(
     two of them: each button carries its own variant's mode.  Without that, a
     comparison variant drawn with ``barmode='group'`` would flatten the
     stacked composition variants sharing the dropdown with it (and vice
-    versa).
+    versa).  ``annotations`` are layout properties for the same reason and are
+    swapped the same way, so a per-variant caption follows its own traces.
     """
     usable = [(str(label), fig) for label, fig in figures if fig is not None]
     if not usable:
@@ -603,6 +604,12 @@ def combine_charts(
     # is replaced below, once the full trace count is known.
     merged.update_layout(usable[0][1].layout)
 
+    # An annotation is a layout property too, so a variant's caption has to be
+    # swapped by its own button -- otherwise variant 0's numbers stay on screen
+    # while variant 2's traces are shown.  Only touched when some variant
+    # actually carries one, so charts without captions are unaffected.
+    any_annotations = any(bool(fig.layout.annotations) for _, fig in usable)
+
     buttons = []
     for i, (label, fig) in enumerate(usable):
         visible = [False] * n_traces
@@ -614,6 +621,10 @@ def combine_charts(
         ]
         if fig.layout.barmode is not None:
             args[1]["barmode"] = fig.layout.barmode
+        if any_annotations:
+            args[1]["annotations"] = [
+                copy.deepcopy(a) for a in (fig.layout.annotations or ())
+            ]
         sliders = fig.layout.sliders or ()
         if sliders:
             slider = copy.deepcopy(sliders[0])
