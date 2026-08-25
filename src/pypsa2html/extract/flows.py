@@ -539,6 +539,44 @@ def _extra_rows(
     return frame
 
 
+def _natural_charging_row(
+    ctx: BuildContext, network, node: str, horizon: int
+) -> pd.DataFrame:
+    """Book pinned EV demand as an electricity-grid → BEV flow.
+
+    ``land transport EV inflexible`` sits on an AC / low-voltage bus, so it
+    never appears as a charger Link.  The load row still maps to EV final
+    demand (``preselccftra``); without this extra row the BEV Sankey node
+    would show that demand leaving and nothing arriving.  Topology detection
+    (not the carrier name) is the same rule as :mod:`.ev`.
+    """
+    from .ev import ev_components
+
+    columns = ["carrier", "source", "target", "value", "origin", "port", "sign"]
+    locations = ctx.locations_for(node) if hasattr(ctx, "locations_for") else [node]
+    components = ev_components(network, ctx.resolver(horizon), locations)
+    if not len(components.natural_loads):
+        return pd.DataFrame(columns=columns)
+    value = float(
+        _load_totals(ctx, horizon).reindex(components.natural_loads).fillna(0.0).sum()
+    )
+    if value == 0.0:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(
+        [
+            {
+                "carrier": "natural EV charging",
+                "source": "AC",
+                "target": "EV battery",
+                "value": value,
+                "origin": "extra",
+                "port": 0,
+                "sign": 0,
+            }
+        ]
+    )
+
+
 # --------------------------------------------------------------------------
 # assembly
 # --------------------------------------------------------------------------
@@ -638,6 +676,7 @@ def _flows_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.Series:
     )
     parts.append(_load_flows(ctx, network, node, horizon, rail=rail, overrides=overrides))
     parts.append(_extra_rows(ctx, node, horizon, rail, clever))
+    parts.append(_natural_charging_row(ctx, network, node, horizon))
 
     # Empty frames are dropped rather than concatenated: an all-NA frame makes
     # pandas widen the dtypes of the result (FutureWarning in 2.x).

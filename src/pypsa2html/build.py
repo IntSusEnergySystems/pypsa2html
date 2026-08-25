@@ -141,8 +141,14 @@ def build_scenario(
     ctx: BuildContext | None = None,
     report: BuildReport | None = None,
     context_pool: dict[str, BuildContext] | None = None,
+    only_pages: list[str] | None = None,
 ) -> BuildReport:
-    """Build every page for every node of one scenario."""
+    """Build every page for every node of one scenario.
+
+    ``only_pages`` skips writing other pages but the left nav still lists the
+    full ``manifest`` (normally ``output.pages``).  A rebuild of just the
+    Sankeys therefore keeps links to overview, costs, maps, …
+    """
     started = time.perf_counter()
     report = report or BuildReport()
     if ctx is None and context_pool is not None and scenario_name in context_pool:
@@ -155,13 +161,22 @@ def build_scenario(
     manifest = manifest or load_manifest(
         enable=config.plots, include_pages=config.output.pages
     )
+    if only_pages:
+        unknown = [p for p in only_pages if p not in manifest.ids]
+        if unknown:
+            raise ValueError(
+                f"--only refers to unknown page(s) {unknown}. Valid: {manifest.ids}"
+            )
     out_dir = config.output_dir(scenario_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     scenario_prefixes = _scenario_prefixes(config, scenario_name)
 
     shared_done: set[str] = set()
+    write_ids = set(only_pages) if only_pages else None
 
     for page in manifest:
+        if write_ids is not None and page.id not in write_ids:
+            continue
         shared = page.shared and config.output.shared_maps
         for node in ctx.nodes:
             if shared and page.id in shared_done:
@@ -213,6 +228,7 @@ def build_site(
     *,
     scenarios: list[str] | None = None,
     manifest: Manifest | None = None,
+    only_pages: list[str] | None = None,
 ) -> BuildReport:
     """Build the whole site: every scenario, plus ``index.html``."""
     from .charts.maps import clear_map_png_cache
@@ -237,6 +253,7 @@ def build_site(
                 manifest=manifest,
                 report=report,
                 context_pool=context_pool,
+                only_pages=only_pages,
             )
 
         if config.output.write_index and report.written:

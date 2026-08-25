@@ -134,6 +134,15 @@ IMPORTED_CARRIERS: tuple[str, ...] = ("cms", "ura")
 #: Secondary carriers balanced against the rest of the system by trade.
 TRADED_SE_CARRIERS: tuple[str, ...] = ("elc", "hyd")
 
+#: Taxonomy types that are transformation nodes.  After graph closure, inflow
+#: must equal outflow.  Sources (``prod``, ``imp``), sinks (demand sectors,
+#: ``per``, ``exp``) and GHG nodes are exempt — they are meant to be open.
+BALANCE_NODE_TYPES: tuple[str, ...] = (
+    "PRIMARY_ENERGIES",
+    "SECONDARY_ENERGIES",
+    "FINAL_ENERGIES",
+)
+
 #: Final carriers balanced against the rest of the system by trade.
 TRADED_FE_CARRIERS: tuple[str, ...] = ("amm", "met")
 
@@ -379,6 +388,84 @@ def _endpoint_sum(frame: pd.DataFrame, level: str, code: str) -> pd.Series:
     if not mask.any():
         return _zeros(frame.index)
     return frame.loc[:, mask].sum(axis=1).astype(float)
+
+
+def graph_imbalances(
+    flows: pd.DataFrame,
+    taxonomy,
+    *,
+    atol: float = 0.05,
+    rtol: float = 0.02,
+) -> pd.DataFrame:
+    """Transformation nodes whose annual inflow does not equal outflow.
+
+    ``atol`` is TWh (or MtCO2 on a carbon graph); ``rtol`` is relative to
+    ``max(|in|, |out|)``.  Both must be exceeded, so a 0.03 TWh rounding
+    residual on a 10 TWh node is ignored and a 4 TWh hole on a 5 TWh node
+    is not.
+
+    An empty frame means every primary / secondary / final node conserves
+    energy.  That is the test the energy Sankey must pass: a BEV node with
+    more leaving than arriving is this function's original reason to exist.
+    """
+    columns = ["node", "year", "incoming", "outgoing", "gap"]
+    if flows is None or flows.empty:
+        return pd.DataFrame(columns=columns)
+    types = taxonomy.nodes["Type"]
+    codes = [c for c in types.index if types.get(c) in BALANCE_NODE_TYPES]
+    incoming = sum_by(flows, where="Target", nodes=codes, by="Target")
+    outgoing = sum_by(flows, where="Source", nodes=codes, by="Source")
+    rows: list[dict] = []
+    for code in codes:
+        inn = (
+            incoming[code].reindex(flows.index).fillna(0.0)
+            if code in incoming.columns
+            else _zeros(flows.index)
+        )
+        out = (
+            outgoing[code].reindex(flows.index).fillna(0.0)
+            if code in outgoing.columns
+            else _zeros(flows.index)
+        )
+        gap = out - inn
+        scale = np.maximum(inn.abs(), out.abs())
+        for year in flows.index:
+            g = float(gap.loc[year])
+            s = float(scale.loc[year])
+            if abs(g) <= atol:
+                continue
+            if s > 0 and abs(g) / s <= rtol:
+                continue
+            rows.append(
+                {
+                    "node": code,
+                    "year": year,
+                    "incoming": float(inn.loc[year]),
+                    "outgoing": float(out.loc[year]),
+                    "gap": g,
+                }
+            )
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _warn_imbalances(ctx, node: str, flows: pd.DataFrame) -> None:
+    """Log unbalanced Sankey nodes; never raises (the report still renders)."""
+    imb = graph_imbalances(flows, ctx.taxonomy)
+    if imb.empty:
+        return
+    parts = [
+        f"{row.node} {row.year} {row.gap:+.2f} (in {row.incoming:.2f}, out {row.outgoing:.2f})"
+        for row in imb.itertuples(index=False)
+    ]
+    extra = " ..." if len(parts) > 12 else ""
+    logger.warning(
+        "energy Sankey for %s: %d unbalanced transformation node-year(s) "
+        "(outgoing − incoming, TWh): %s%s",
+        node,
+        len(parts),
+        "; ".join(parts[:12]),
+        extra,
+    )
 
 
 def _sufficiency_ratio(domestic: pd.Series, net_import: pd.Series) -> pd.Series:
@@ -1178,6 +1265,7 @@ def build(ctx, node: str, *, energy: pd.DataFrame, carbon: pd.DataFrame) -> Indi
     flows_ghg = _graph(carbon_values, tax.processes_ghg, rename, what="GHG attribution")
 
     flows = _close_energy_graph(ctx, node, flows)
+    _warn_imbalances(ctx, node, flows)
     flows_co2 = _close_carbon_graph(ctx, node, flows_co2, flows)
 
     return Indicators(ctx=ctx, node=node, flows=flows, flows_co2=flows_co2, flows_ghg=flows_ghg)

@@ -330,3 +330,18 @@ def test_combine_charts_leaves_annotation_free_charts_alone():
     merged = combine_charts(figures)
     for button in merged.layout.updatemenus[0].buttons:
         assert "annotations" not in button.args[1]
+
+
+def test_natural_charging_is_emitted_as_its_own_flow(mini_network, ev_ctx):
+    """The inflexible EV load is copied as ``natural EV charging`` for the Sankey.
+
+    AA has the split; BB does not, so the extra row is absent rather than zero.
+    """
+    from pypsa2html.extract.flows import _natural_charging_row
+
+    aa = _natural_charging_row(ev_ctx("AA"), mini_network, "AA", HORIZON)
+    assert list(aa["carrier"]) == ["natural EV charging"]
+    assert float(aa["value"].iloc[0]) > 0
+
+    bb = _natural_charging_row(ev_ctx("BB"), mini_network, "BB", HORIZON)
+    assert bb.empty

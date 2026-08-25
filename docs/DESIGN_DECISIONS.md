@@ -372,6 +372,21 @@ négaWatt put the whole fleet behind the charger. The same chart renders both,
 with the natural-charging series simply absent in the second case — not
 present-and-zero, which would put a dead entry in the legend.
 
+### The energy Sankey
+
+The charger Link is the only model output that feeds the BEV node (`bev_se`).
+The graph-closure step then sets `bev_se → bev_fe` to **all** EV final demand,
+and both `land transport EV` and `land transport EV inflexible` map to that
+demand. On a split model the inflexible load never goes through the charger, so
+the BEV node had more leaving than arriving — on the 2026-08-18 Walloon run the
+hole was exactly the natural-charging volume (0.47 TWh in 2025, 8.4 TWh in 2050).
+
+Natural charging is therefore copied as its own electricity-grid → BEV flow
+(`prenatbev`, label **Natural charging**). The charger keeps label **Smart
+charging**. A model without the split has no such row, so the extra ribbon is
+absent. `graph_imbalances` is the regression test: after closure, every
+primary / secondary / final node must conserve energy.
+
 ### The dashed counterfactual
 
 The shape uncontrolled charging would follow is, in order of preference:

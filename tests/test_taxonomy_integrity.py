@@ -88,6 +88,7 @@ def test_both_carrier_spellings_of_the_ev_charger_are_mapped(tax):
     )
     assert entries["EV charger"] == entries["BEV charger"] == "prebev"
     assert entries["EV charger_2"] == entries["BEV charger_2"] == "prebevloss"
+    assert entries["natural EV charging"] == "prenatbev"
 
 
 def test_energy_sankey_placeholder_codes_do_not_increase(tax, produced_codes):
@@ -111,7 +112,8 @@ def test_energy_sankey_unresolved_edges_do_not_increase(tax, produced_codes):
     model has no geothermal, which is fine. The placeholders above are not.
     """
     referenced = set(tax.processes_energy["Value_Code"].dropna())
-    assert len(referenced - produced_codes) <= 199
+    # 200: +1 for `prenatbev` (pypsa-wal natural charging; négaWatt has no split).
+    assert len(referenced - produced_codes) <= 200
 
 
 def test_value_codes_reused_across_edges_are_known(tax):

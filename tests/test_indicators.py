@@ -271,3 +271,69 @@ def test_self_sufficiency_members_sums_cached_flows(
     assert list(two.columns) == ["primary", "electricity"]
     assert two.notna().any().all()
     assert "BEVLG+BEWAL" not in ctx.nodes.codes
+
+
+# ---------------------------------------------------------------------------
+# Energy-Sankey node balance (BEV / natural charging)
+# ---------------------------------------------------------------------------
+
+
+def _energy_table(year_columns, values: dict[str, float]) -> pd.DataFrame:
+    """One-horizon-repeated long table so ``build`` has a year index."""
+    return pd.DataFrame(
+        [
+            {"code": code, "label": code, "unit": "TWh", **dict.fromkeys(year_columns, v)}
+            for code, v in values.items()
+        ]
+    )
+
+
+def _carbon_zeros(year_columns) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "code": "emmresbmatm",
+                "label": "unused",
+                "unit": "MtCO2",
+                **dict.fromkeys(year_columns, 0.0),
+            }
+        ]
+    )
+
+
+def test_bev_sankey_node_unbalanced_without_natural_charging(
+    indicator_ctx, year_columns
+):
+    """The pypsa-wal split books both EV loads as ``bev_fe`` demand.
+
+    Only the charger Link feeds ``bev_se``.  Without copying the inflexible
+    load in as Natural charging, the BEV node has more leaving than arriving
+    — the hole that showed up on the 2026-08-18 Walloon Sankey.
+    """
+    energy = _energy_table(
+        year_columns,
+        {"prebev": 1.0, "preselccftra": 5.0},
+    )
+    result = _build(indicator_ctx, "BE", energy, _carbon_zeros(year_columns))
+    imb = indicators.graph_imbalances(result.flows, indicator_ctx.taxonomy, atol=0.01, rtol=0.0)
+    bev = imb[imb["node"] == "bev_se"]
+    assert not bev.empty
+    assert (bev["gap"] > 3.0).all()  # ~4 TWh of missing natural charging
+
+
+def test_bev_sankey_node_balances_with_natural_charging(indicator_ctx, year_columns):
+    energy = _energy_table(
+        year_columns,
+        {"prebev": 1.0, "preselccftra": 5.0, "prenatbev": 4.0},
+    )
+    result = _build(indicator_ctx, "BE", energy, _carbon_zeros(year_columns))
+    imb = indicators.graph_imbalances(result.flows, indicator_ctx.taxonomy, atol=0.01, rtol=0.0)
+    assert imb[imb["node"] == "bev_se"].empty
+    # Two distinct charging edges, so the Sankey can label them separately.
+    cols = result.flows.columns
+    assert ("elc_se", "bev_se", "") in cols
+    assert ("elc_se", "bev_se", "nat") in cols
+    smart = result.flows[("elc_se", "bev_se", "")].iloc[0]
+    natural = result.flows[("elc_se", "bev_se", "nat")].iloc[0]
+    assert smart == pytest.approx(1.0)
+    assert natural == pytest.approx(4.0)

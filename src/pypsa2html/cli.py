@@ -37,6 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
         dest="scenarios",
         help="build only this scenario (repeatable); default: all",
     )
+    p_build.add_argument(
+        "--only",
+        action="append",
+        dest="only_pages",
+        metavar="PAGE",
+        help="write only this page id (repeatable); the left nav still lists "
+        "every page in output.pages",
+    )
     p_build.add_argument("--output", "-o", type=Path, default=None, help="override output.dir")
 
     p_inspect = sub.add_parser(
@@ -119,7 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "build":
         from .build import build_site
 
-        report = build_site(config, scenarios=args.scenarios)
+        report = build_site(
+            config, scenarios=args.scenarios, only_pages=args.only_pages
+        )
         print(report.summary())
         if report.failed:
             print(f"\n{len(report.failed)} section(s) rendered as placeholders:", file=sys.stderr)

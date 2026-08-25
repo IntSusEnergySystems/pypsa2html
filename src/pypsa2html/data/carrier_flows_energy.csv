@@ -63,7 +63,7 @@ naphtha for industry,naphtha for non-energy,TWh,prespetcfneind
 H2 for non-energy,H2 for non-energy,TWh,preshydcfneind
 agriculture machinery oil,agriculture oil,TWh,prespetcfagr
 agriculture electricity,agriculture electricity,TWh,preselccfagr
-EV charger,BEV charging,TWh,prebev
+EV charger,Smart charging,TWh,prebev
 EV charger_2,BEV charging losses,TWh,prebevloss
 V2G,vehicle to grid,TWh,prevtg
 V2G_2,vehicle to grid losses,TWh,prevtgloss
@@ -171,5 +171,6 @@ urban decentral resistive heater,urban decentral resistive heater,TWh,preehplx
 biomass to liquid_2,biomass to liquid losses,TWh,probmliqlos
 BioSNG CC,BioSNG CC,TWh,probiosngcc
 BioSNG CC_2,BioSNG CC losses,TWh,probiosnglosscc
-BEV charger,BEV charging,TWh,prebev
+BEV charger,Smart charging,TWh,prebev
 BEV charger_2,BEV charging losses,TWh,prebevloss
+natural EV charging,Natural charging,TWh,prenatbev

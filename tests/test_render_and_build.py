@@ -74,6 +74,24 @@ def test_navigation_is_generated_from_the_node_set(node_set, scenarios, minimal_
     assert 'value="BEWAL" selected' in html
 
 
+def test_left_nav_lists_every_page_in_the_manifest(node_set, scenarios, minimal_config):
+    """A Sankey rebuild must still link to the rest of the site in the TOC."""
+    project = load_config(minimal_config).project
+    html = _render(node_set, scenarios, project, page_id="sankeys")
+    assert 'class="pages"' in html
+    assert "Sankey diagrams" in html
+    assert "Emissions" in html
+    assert 'href="BEWAL_emissions_demo.html"' in html
+    assert 'href="BEWAL_sankeys_demo.html"' in html
+
+
+def test_build_parser_accepts_only():
+    from pypsa2html.cli import build_parser
+
+    args = build_parser().parse_args(["build", "-c", "x.yaml", "--only", "sankeys"])
+    assert args.only_pages == ["sankeys"]
+
+
 def test_toc_is_in_the_dom_not_a_js_string(node_set, scenarios, minimal_config):
     """Legacy injected the TOC into `secondaryTOC.innerHTML = "..."`."""
     project = load_config(minimal_config).project
