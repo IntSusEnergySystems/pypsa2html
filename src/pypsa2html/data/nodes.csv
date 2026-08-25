@@ -1,5 +1,7 @@
 Code,Type,Label,Color,Category,Emission_Factor,Emission_Factor_CO2,Emission_Factor_CH4,PositionX,PositionY,GHG_Code
 total,GROUPS,Total,#000000,,,,,,,
+ss_pe,GROUPS,Primary energy,#32bf84,,,,,,,
+ss_elc,GROUPS,Electricity,#06b1c4,,,,,,,
 res,DEMAND_SECTORS,Residential and Tertiary,#fd5956,,,,,1.0,0.05,
 ter,DEMAND_SECTORS,Tertiary,#ea80a8,,,,,1.0,0.05,
 tra,DEMAND_SECTORS,Domestic transport,#01889f,,,,,1.0,0.33,

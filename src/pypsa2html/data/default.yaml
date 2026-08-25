@@ -44,6 +44,7 @@ nodes:
   # prefix match (`BE` must not silently include `BEWAL`). Missing members
   # are skipped with a warning. If `code` is already a detected location,
   # the group is omitted (the real node already has pages). Empty by default.
+  # Used by self-sufficiency (and every other nodal chart) for country totals.
   groups: []
   # groups:
   #   - code: BE

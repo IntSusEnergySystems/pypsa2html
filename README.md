@@ -156,7 +156,8 @@ texts:                                 # optional narrative HTML above a section
 
 Two worked examples ship in [`config/`](config/): `negawatt.yaml` (NUTS-1 Belgian
 regions plus a `BE` group and an `EU` study-wide sum; landing `focus: BE`) and
-`pypsa-wal.yaml` (already regional; no extra `BE` group).
+`pypsa-wal.yaml` (the same three Belgian regions plus a `BE` group so
+self-sufficiency can be read for the country; landing `focus: BEWAL`).
 
 ### Point of attention — capacity charts
 
@@ -210,6 +211,31 @@ cost of flexibility (charger and V2G round-trip losses) is reported by
 "delivered to vehicles" marker. See
 [D16](docs/DESIGN_DECISIONS.md#d16--ev-charging-is-detected-by-topology-and-the-counterfactual-is-energy-neutral).
 
+### Point of attention — self-sufficiency
+
+Each region's Energy consumption page has two self-sufficiency sections
+(primary energy and electricity, as percent and as a TWh balance). The
+overview page compares the same ratios across scenarios. Both are unclipped:
+a net exporter is above 100 %. Nuclear generation counts as domestic
+electricity and as imported primary energy.
+
+The Python interface is the same for a single node and for a group — no extra
+library:
+
+```python
+from pypsa2html import load_config, self_sufficiency
+from pypsa2html.context import build_context
+
+ctx = build_context(load_config("config/pypsa-wal.yaml"), "scen_demande_haute")
+self_sufficiency(ctx, node="BEWAL")
+self_sufficiency(ctx, node="BE")                          # nodes.groups
+self_sufficiency(ctx, members=["BEWAL", "BEVLG", "BEBRU"])  # ad-hoc
+```
+
+`config/pypsa-wal.yaml` declares a `BE` group with those three members so the
+HTML report has a Belgium page. See
+[D18](docs/DESIGN_DECISIONS.md#d18--self-sufficiency-is-two-ratios-and-a-members-list).
+
 ### Output
 
 One directory containing `index.html` (redirecting to the landing page) plus
@@ -236,7 +262,7 @@ pypsa2html/
 │   ├── datafiles.py               loads + validates the taxonomy CSVs
 │   ├── pages.py                   the page manifest
 │   ├── context.py                 BuildContext — replaces the `snakemake` global
-│   ├── indicators.py              flow algebra (fec, pec, ghg, coverage ratios)
+│   ├── indicators.py              flow algebra (fec, pec, ghg, coverage, self-sufficiency)
 │   ├── build.py                   manifest × nodes × scenarios → files
 │   ├── cli.py                     build / inspect / pages
 │   ├── extract/                   solved network → tidy flow tables
@@ -336,6 +362,7 @@ nine files by hardcoded path that Snakemake therefore could not track.
 | Costs, capacities, demands | `extract/tables` `charts/results` | done, tested |
 | Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | done, tested |
 | EV charging (natural vs smart, V2G) | `extract/ev` `charts/ev` | new, tested |
+| Self-sufficiency (primary energy, electricity) | `indicators` `charts/indicators` `charts/scenario` | new, tested |
 
 ---
 

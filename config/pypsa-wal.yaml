@@ -30,6 +30,11 @@ nodes:
     enabled: true
     code: ALL
     label: All regions
+  # Belgium as a group so self-sufficiency (and every other nodal chart) can
+  # be read for the country without summing the three regional pages by hand.
+  # Explicit members only — BE never silently includes BEWAL.
+  groups:
+    - {code: BE, label: Belgium, members: [BEVLG, BEWAL, BEBRU]}
 
 scenarios:
   - name: scen_demande_haute

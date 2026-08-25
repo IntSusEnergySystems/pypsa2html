@@ -45,6 +45,7 @@ PYTHONPATH=src python -m pypsa2html.cli build -c config/negawatt.yaml -s ref -o 
 | Dispatch time series | `charts/dispatch.py` | **T3 — done** |
 | Maps | `charts/maps.py` | **T4 — done** |
 | EV charging (natural vs smart, V2G) | `extract/ev.py`, `charts/ev.py` | **new** — not a port, see [D16](DESIGN_DECISIONS.md#d16--ev-charging-is-detected-by-topology-and-the-counterfactual-is-energy-neutral) |
+| Self-sufficiency (PE + electricity) | `indicators.py`, `charts/indicators.py` | **new** — see [D18](DESIGN_DECISIONS.md#d18--self-sufficiency-is-two-ratios-and-a-members-list) |
 
 T1–T4 below are the original porting briefs (kept for the bug list). The
 chart modules exist; remaining work is T5–T10 plus model-side decisions.
@@ -176,8 +177,8 @@ page must still render when only two of three scenarios have been solved.
   `properties.name` in the other, and only highlights a region if the shapefile
   literally contains a feature named `BEWAL`. Write one helper that is agnostic
   to the property casing and degrades to no highlight with a warning.
-- `energy_independence` is `scope: real` in the manifest, so it is already
-  skipped for the aggregate node — don't re-add a `country == 'BE'` guard.
+- `energy_independence` now uses the unclipped primary-energy and electricity
+  ratios (D18) and applies to every node, including groups.
 - Scenario labels come from `ctx.config.scenarios[i].label`, never from the
   directory name.
 

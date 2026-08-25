@@ -82,6 +82,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable, Sequence
+from copy import copy
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -117,7 +118,14 @@ GAS_GRID_RENEWABLE: tuple[tuple[str, str, str], ...] = (
 
 #: Primary energies whose supply is by definition domestic.
 DOMESTIC_CARRIERS: tuple[str, ...] = (
-    "hdr", "eon", "eof", "spv", "pac", "bgl", "win", "wst",
+    "hdr",
+    "eon",
+    "eof",
+    "spv",
+    "pac",
+    "bgl",
+    "win",
+    "wst",
 )
 
 #: Primary energies whose supply is by definition imported.
@@ -129,15 +137,33 @@ TRADED_SE_CARRIERS: tuple[str, ...] = ("elc", "hyd")
 #: Final carriers balanced against the rest of the system by trade.
 TRADED_FE_CARRIERS: tuple[str, ...] = ("amm", "met")
 
-#: Nodes whose total inflow is the denominator of a self-sufficiency ratio.
+#: Nodes whose total inflow is the denominator of a per-carrier coverage ratio.
 BALANCE_TARGETS: tuple[str, ...] = (
-    "elc_se", "cms_pe", "met_fe", "hyd_se", "gaz_pe",
-    "amm_fe", "enc_pe", "vap_se", "pet_pe",
+    "elc_se",
+    "cms_pe",
+    "met_fe",
+    "hyd_se",
+    "gaz_pe",
+    "amm_fe",
+    "enc_pe",
+    "vap_se",
+    "pet_pe",
+)
+
+#: Public columns of :class:`SelfSufficiency.ratio` and the taxonomy codes
+#: used when those series are drawn as a chart.
+SELF_SUFFICIENCY_KINDS: tuple[tuple[str, str], ...] = (
+    ("primary", "ss_pe"),
+    ("electricity", "ss_elc"),
 )
 
 #: GHG nodes that represent a *removal*; their bar is drawn below the axis.
 GHG_REMOVALS: tuple[str, ...] = (
-    "lufnes_ghg", "blg_ghg", "dac_ghg", "blq_ghg", "bmc_ghg",
+    "lufnes_ghg",
+    "blg_ghg",
+    "dac_ghg",
+    "blq_ghg",
+    "bmc_ghg",
 )
 
 #: Columns of ``biomass_potentials_s_*.csv`` that make up solid biomass.
@@ -145,14 +171,21 @@ GHG_REMOVALS: tuple[str, ...] = (
 #: gained an unsustainable-biomass carrier.  Summing whatever is present serves
 #: both: a column that does not exist contributes nothing.
 BIOMASS_POTENTIAL_COLUMNS: tuple[str, ...] = (
-    "solid biomass", "unsustainable solid biomass",
+    "solid biomass",
+    "unsustainable solid biomass",
 )
 
 #: Flows reported as imports in the per-node trade summary.
 IMPORT_FLOWS: tuple[tuple[str, str, str], ...] = (
-    ("imp", "gaz_pe", ""), ("imp", "pet_pe", ""), ("imp", "elc_se", ""),
-    ("imp", "hyd_se", ""), ("imp", "enc_pe", ""), ("imp", "amm_fe", ""),
-    ("imp", "met_fe", ""), ("ura_pe", "elc_se", "thm"), ("imp", "cms_pe", ""),
+    ("imp", "gaz_pe", ""),
+    ("imp", "pet_pe", ""),
+    ("imp", "elc_se", ""),
+    ("imp", "hyd_se", ""),
+    ("imp", "enc_pe", ""),
+    ("imp", "amm_fe", ""),
+    ("imp", "met_fe", ""),
+    ("ura_pe", "elc_se", "thm"),
+    ("imp", "cms_pe", ""),
 )
 
 #: Flows reported as domestic production in the per-node trade summary.
@@ -163,8 +196,12 @@ LOCAL_PRODUCTION_FLOWS: tuple[tuple[str, str, str], ...] = tuple(
 
 #: Flows reported as exports in the per-node trade summary.
 EXPORT_FLOWS: tuple[tuple[str, str, str], ...] = (
-    ("elc_se", "exp", ""), ("hyd_se", "exp", ""), ("enc_pe", "exp", ""),
-    ("met_fe", "exp", ""), ("amm_fe", "exp", ""), ("gaz_se", "exp", ""),
+    ("elc_se", "exp", ""),
+    ("hyd_se", "exp", ""),
+    ("enc_pe", "exp", ""),
+    ("met_fe", "exp", ""),
+    ("amm_fe", "exp", ""),
+    ("gaz_se", "exp", ""),
 )
 
 
@@ -195,27 +232,32 @@ class _CarrierMix:
 #: legacy denominators exactly; the last four had none worth reproducing.
 RENEWABLE_SHARES: tuple[_CarrierMix, ...] = (
     _CarrierMix(
-        "elc_fe", ("elc_se",),
+        "elc_fe",
+        ("elc_se",),
         renewable=("spv_pe", "eon_pe", "eof_pe", "hdr_pe", "enc_pe"),
         other=("pac_pe", "cms_pe", "gaz_pe", "pet_pe", "ura_pe"),
     ),
     _CarrierMix(
-        "gaz_fe", ("gaz_se",),
+        "gaz_fe",
+        ("gaz_se",),
         renewable=("bgl_pe", "enc_pe", "hyd_se"),
         other=("gaz_pe",),
     ),
     _CarrierMix(
-        "pet_fe", ("pet_fe", "lqf_se"),
+        "pet_fe",
+        ("pet_fe", "lqf_se"),
         renewable=("enc_pe", "hyd_se"),
         other=("pet_pe",),
     ),
     _CarrierMix(
-        "hyd_fe", ("hyd_se",),
+        "hyd_fe",
+        ("hyd_se",),
         renewable=("elc_se", "imp"),
         other=("gaz_se",),
     ),
     _CarrierMix(
-        "vap_fe", ("vap_se",),
+        "vap_fe",
+        ("vap_se",),
         renewable=("enc_pe", "bgl_pe", "elc_se", "pac_pe", "hyd_se", "tes_se"),
         other=("cms_pe", "pet_pe", "gaz_se"),
     ),
@@ -231,6 +273,23 @@ RENEWABLE_SHARES: tuple[_CarrierMix, ...] = (
 # ---------------------------------------------------------------------------
 
 FlowKey = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class SelfSufficiency:
+    """Primary-energy and electricity self-sufficiency for one spatial unit.
+
+    ``ratio``
+        Percent, columns ``primary`` and ``electricity``.  Not clipped: a net
+        exporter is above 100.  ``NaN`` when the denominator is not positive.
+    ``primary`` / ``electricity``
+        TWh/year balances, columns ``domestic`` and ``net_import`` (imports
+        minus exports; negative means net exporter).
+    """
+
+    ratio: pd.DataFrame
+    primary: pd.DataFrame
+    electricity: pd.DataFrame
 
 
 def _zeros(index: pd.Index) -> pd.Series:
@@ -314,6 +373,46 @@ def _share_percent(frame: pd.DataFrame, base: float = 100.0) -> pd.DataFrame:
     return frame.div(total, axis=0).fillna(0.0) * base
 
 
+def _endpoint_sum(frame: pd.DataFrame, level: str, code: str) -> pd.Series:
+    """Sum every flow whose ``level`` (Source/Target/Type) equals ``code``."""
+    mask = frame.columns.get_level_values(level) == code
+    if not mask.any():
+        return _zeros(frame.index)
+    return frame.loc[:, mask].sum(axis=1).astype(float)
+
+
+def _sufficiency_ratio(domestic: pd.Series, net_import: pd.Series) -> pd.Series:
+    """``100 * domestic / (domestic + net_import)``, ``NaN`` if supply ≤ 0.
+
+    ``net_import`` is imports minus exports, so a net exporter exceeds 100 %.
+    The legacy coverage ratios clipped at 100, which made exporters
+    indistinguishable from autarky.
+    """
+    supply = domestic + net_import
+    return (100.0 * domestic / supply).where(supply > 0)
+
+
+def _sum_long_tables(tables: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Add long flow tables that share ``code`` / ``label`` / ``unit``."""
+    frames = [t for t in tables if t is not None and not t.empty]
+    if not frames:
+        return pd.DataFrame(columns=["code", "label", "unit"])
+    if len(frames) == 1:
+        return frames[0].copy()
+    pieces = []
+    for table in frames:
+        extra = [c for c in table.columns if c not in ("code", "label", "unit")]
+        piece = table.set_index("code")
+        meta = piece[["label", "unit"]]
+        values = piece[extra].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        pieces.append(pd.concat([meta, values], axis=1))
+    stacked = pd.concat(pieces, axis=0)
+    values = stacked.drop(columns=["label", "unit"]).groupby(level=0).sum()
+    meta = stacked[["label", "unit"]].groupby(level=0).first()
+    out = meta.join(values).reset_index()
+    return out[["code", "label", "unit", *values.columns]]
+
+
 def _interpolate_to(series: pd.Series, years: Sequence[int]) -> pd.Series:
     """Put an exogenous per-year series on the report's horizons.
 
@@ -334,6 +433,7 @@ def _interpolate_to(series: pd.Series, years: Sequence[int]) -> pd.Series:
 # ---------------------------------------------------------------------------
 # Long table -> wide value table -> graph
 # ---------------------------------------------------------------------------
+
 
 def flows_from_long(df: pd.DataFrame, year_columns: Sequence[str]) -> pd.DataFrame:
     """``(code, label, unit, <year>...)`` -> ``index=year, columns=code``.
@@ -395,7 +495,10 @@ def _graph(
     if unfound:
         logger.info(
             "%s: %d indicator(s) absent from the model output, filled with 0 (%s%s)",
-            what, len(unfound), ", ".join(unfound[:8]), " ..." if len(unfound) > 8 else "",
+            what,
+            len(unfound),
+            ", ".join(unfound[:8]),
+            " ..." if len(unfound) > 8 else "",
         )
         data = data.reindex(columns=[*data.columns, *unfound], fill_value=0.0)
 
@@ -416,6 +519,7 @@ def _graph(
 # ---------------------------------------------------------------------------
 # Exogenous inputs
 # ---------------------------------------------------------------------------
+
 
 def _real_codes(ctx) -> list[str]:
     return list(ctx.nodes.real_codes)
@@ -452,15 +556,19 @@ def _domestic_production(ctx, node: str, table: pd.DataFrame, years, what: str) 
     codes = _table_codes(ctx, node, table.index)
     if not codes:
         logger.warning(
-            "%s: no region of %s appears in the table; assuming no domestic "
-            "production for node %s", what, _real_codes(ctx), node,
+            "%s: no region of %s appears in the table; assuming no domestic production for node %s",
+            what,
+            _real_codes(ctx),
+            node,
         )
         return _zeros(pd.Index(years))
     rows = table.reindex(codes).dropna(how="all")
     if rows.empty:
         logger.warning(
-            "%s: no region of %s appears in the table; assuming no domestic "
-            "production for node %s", what, codes, node,
+            "%s: no region of %s appears in the table; assuming no domestic production for node %s",
+            what,
+            codes,
+            node,
         )
         return _zeros(pd.Index(years))
     return _interpolate_to(rows.sum(numeric_only=True), years)
@@ -501,7 +609,9 @@ def biomass_potential(ctx, node: str, years: Sequence[int]) -> pd.Series | None:
         if not available:
             logger.warning(
                 "biomass_potentials_s_%s_%s.csv has none of the columns %s",
-                clusters, year, list(BIOMASS_POTENTIAL_COLUMNS),
+                clusters,
+                year,
+                list(BIOMASS_POTENTIAL_COLUMNS),
             )
             continue
         totals = raw[available].sum(axis=1) / 1e6  # MWh -> TWh
@@ -522,7 +632,9 @@ def biomass_potential(ctx, node: str, years: Sequence[int]) -> pd.Series | None:
     if not values:
         logger.info(
             "no biomass_potentials_s_%s_*.csv under %s; keeping the model's own "
-            "domestic biomass production", clusters, ctx.resources_dir,
+            "domestic biomass production",
+            clusters,
+            ctx.resources_dir,
         )
         return None
     return pd.Series(values, dtype=float).reindex(years)
@@ -549,6 +661,7 @@ def year_weights(ctx, years: Sequence[int]) -> pd.Series:
 # ---------------------------------------------------------------------------
 # The energy graph
 # ---------------------------------------------------------------------------
+
 
 def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     """Derive the flows the model does not report directly.
@@ -617,9 +730,7 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
             (1 - efficiency) / efficiency
         )
     else:
-        logger.warning(
-            "no nuclear efficiency in the cost table; nuclear thermal losses omitted"
-        )
+        logger.warning("no nuclear efficiency in the cost table; nuclear thermal losses omitted")
 
     # -- 6. domestic production versus imports -----------------------------
     pe_supply = sum_by(flows, where="Source", nodes=pe, by="Source")
@@ -681,8 +792,8 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
         flows[(code, "exp", "")] = (supply - demand - electricity).clip(lower=0)
 
     # -- 10. rural heat pumps exclude the agricultural share ---------------
-    flows[("pac_fe", "res", "gr")] = (
-        column(flows, ("pac_fe", "res", "gr")) - column(flows, ("pac_fe", "agr", ""))
+    flows[("pac_fe", "res", "gr")] = column(flows, ("pac_fe", "res", "gr")) - column(
+        flows, ("pac_fe", "agr", "")
     )
 
     return flows
@@ -770,6 +881,7 @@ def _close_carbon_graph(
 # ---------------------------------------------------------------------------
 # The indicator set
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Indicators:
@@ -892,9 +1004,7 @@ class Indicators:
         )
         traded = sorted(set(imports.columns) | set(exports.columns))
 
-        consumption = sum_by(
-            self.flows, where="Target", nodes=BALANCE_TARGETS, by="Target"
-        )
+        consumption = sum_by(self.flows, where="Target", nodes=BALANCE_TARGETS, by="Target")
         absent = [c for c in BALANCE_TARGETS if c not in consumption.columns]
         if absent:
             logger.debug("no inflow to %s; excluded from the coverage ratios", absent)
@@ -904,9 +1014,7 @@ class Indicators:
         ratios = 100 * numerator / denominator
 
         # Gas and liquid fuels are reported as a *renewable* coverage instead.
-        renewable_gas = sum(
-            (column(self.flows, key) for key in GAS_GRID_RENEWABLE), _zeros(years)
-        )
+        renewable_gas = sum((column(self.flows, key) for key in GAS_GRID_RENEWABLE), _zeros(years))
         fossil_gas = column(self.flows, ("gaz_pe", "gaz_se", ""))
         ratios["gaz_se"] = 100 * renewable_gas / (fossil_gas + renewable_gas)
 
@@ -996,10 +1104,61 @@ class Indicators:
     def exports(self) -> pd.DataFrame:
         return self._trade(EXPORT_FLOWS)
 
+    # -- self-sufficiency --------------------------------------------------
+    @cached_property
+    def self_sufficiency(self) -> SelfSufficiency:
+        """Primary-energy and electricity self-sufficiency (see D18).
+
+        Primary energy uses every ``prod`` / ``imp`` / ``exp`` edge on the
+        closed energy graph, so uranium is an import (fuel is not mined here)
+        and wind/solar/hydro/biomass are domestic.  Electricity uses the
+        ``elc_se`` balance: nuclear kWh generated inside the node count as
+        domestic even though the fuel is imported.  Internal trade of a group
+        cancels because it is already netted in the residual.
+        """
+        years = self.flows.index
+        domestic_pe = _endpoint_sum(self.flows, "Source", "prod")
+        net_pe = _endpoint_sum(self.flows, "Source", "imp") - _endpoint_sum(
+            self.flows, "Target", "exp"
+        )
+
+        elc_in = node_flows(self.flows, "elc_se", direction="in", split="source")
+        elc_out = node_flows(self.flows, "elc_se", direction="out", split="target")
+        domestic_elc = (
+            (
+                elc_in.drop(columns=["imp"], errors="ignore").sum(axis=1)
+                if len(elc_in.columns)
+                else _zeros(years)
+            )
+            .reindex(years)
+            .fillna(0.0)
+        )
+        imports_elc = (
+            (elc_in["imp"] if "imp" in elc_in.columns else _zeros(years)).reindex(years).fillna(0.0)
+        )
+        exports_elc = (
+            (elc_out["exp"] if "exp" in elc_out.columns else _zeros(years))
+            .reindex(years)
+            .fillna(0.0)
+        )
+        net_elc = imports_elc - exports_elc
+
+        primary = pd.DataFrame({"domestic": domestic_pe, "net_import": net_pe}, index=years)
+        electricity = pd.DataFrame({"domestic": domestic_elc, "net_import": net_elc}, index=years)
+        ratio = pd.DataFrame(
+            {
+                "primary": _sufficiency_ratio(domestic_pe, net_pe),
+                "electricity": _sufficiency_ratio(domestic_elc, net_elc),
+            },
+            index=years,
+        )
+        return SelfSufficiency(ratio=ratio, primary=primary, electricity=electricity)
+
 
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
+
 
 def build(ctx, node: str, *, energy: pd.DataFrame, carbon: pd.DataFrame) -> Indicators:
     """Build the indicator set for one node from two long flow tables.
@@ -1021,9 +1180,7 @@ def build(ctx, node: str, *, energy: pd.DataFrame, carbon: pd.DataFrame) -> Indi
     flows = _close_energy_graph(ctx, node, flows)
     flows_co2 = _close_carbon_graph(ctx, node, flows_co2, flows)
 
-    return Indicators(
-        ctx=ctx, node=node, flows=flows, flows_co2=flows_co2, flows_ghg=flows_ghg
-    )
+    return Indicators(ctx=ctx, node=node, flows=flows, flows_co2=flows_co2, flows_ghg=flows_ghg)
 
 
 def for_node(ctx, node: str) -> Indicators | None:
@@ -1046,7 +1203,8 @@ def for_node(ctx, node: str) -> Indicators | None:
     except (ImportError, AttributeError) as err:
         logger.warning(
             "the extraction layer does not provide energy_flows/carbon_flows "
-            "(%s); indicator sections will be skipped", err,
+            "(%s); indicator sections will be skipped",
+            err,
         )
         energy = carbon = None
     except FileNotFoundError as err:
@@ -1060,3 +1218,167 @@ def for_node(ctx, node: str) -> Indicators | None:
 
     ctx._files[key] = result
     return result
+
+
+def _expand_members(ctx, members: Sequence[str]) -> list[str] | None:
+    """Real location codes for an ad-hoc ``members`` list.
+
+    Group codes are expanded through :meth:`BuildContext.locations_for`.
+    Unknown names are skipped with a warning.  ``None`` if nothing remains.
+    """
+    wanted: list[str] = []
+    missing: list[str] = []
+    seen: set[str] = set()
+    real = set(ctx.nodes.real_codes)
+    for raw in members:
+        code = str(raw)
+        if code in seen:
+            continue
+        if code in real:
+            wanted.append(code)
+            seen.add(code)
+            continue
+        try:
+            locations = ctx.locations_for(code)
+        except KeyError:
+            missing.append(code)
+            continue
+        expanded = ctx.nodes.real_codes if locations is None else list(locations)
+        for loc in expanded:
+            if loc not in seen:
+                wanted.append(loc)
+                seen.add(loc)
+    if missing:
+        logger.warning("self-sufficiency: unknown member(s) %s; skipped", missing)
+    if not wanted:
+        logger.warning("self-sufficiency: no valid members in %s", list(members))
+        return None
+    return sorted(wanted)
+
+
+def _matching_node(ctx, locations: Sequence[str]) -> str | None:
+    """Existing node whose membership is exactly ``locations``, if any."""
+    target = set(locations)
+    for node in ctx.nodes:
+        locs = ctx.locations_for(node.code)
+        current = set(ctx.nodes.real_codes) if locs is None else set(locs)
+        if current == target:
+            return node.code
+    return None
+
+
+def _context_for_locations(ctx, locations: Sequence[str]):
+    """``(ctx, node)`` whose extraction covers exactly ``locations``.
+
+    Reuses a configured node or group when the membership matches, so a
+    ``members=['BEVLG','BEWAL','BEBRU']`` call on a pypsa-wal config with a
+    ``BE`` group hits the same cache as ``node='BE'``.  Otherwise a transient
+    group is attached to a shallow copy of ``ctx`` (the live NodeSet used for
+    page generation is not mutated).
+    """
+    existing = _matching_node(ctx, locations)
+    if existing is not None:
+        return ctx, existing
+
+    from .nodes import Node, NodeSet
+
+    code = "+".join(locations)
+    if code in ctx.nodes.codes:
+        code = f"{code}_group"
+    extra = Node(code=code, label=code, aggregate=True, members=tuple(locations))
+    scoped = copy(ctx)
+    scoped.nodes = NodeSet(
+        nodes=[*ctx.nodes.nodes, extra],
+        focus=ctx.nodes.focus,
+        aggregate_code=ctx.nodes.aggregate_code,
+    )
+    return scoped, code
+
+
+def _indicators_from_member_cache(ctx, locations: Sequence[str], node: str):
+    """Build indicators by summing already-extracted member flow tables.
+
+    ``None`` if any member has not been extracted yet — the caller then
+    extracts the group as a whole.
+    """
+    energy_parts = []
+    carbon_parts = []
+    for loc in locations:
+        energy = ctx._files.get(("energy_flows", str(loc)))
+        carbon = ctx._files.get(("carbon_flows", str(loc)))
+        if energy is None or carbon is None:
+            return None
+        energy_parts.append(energy)
+        carbon_parts.append(carbon)
+    energy = _sum_long_tables(energy_parts)
+    carbon = _sum_long_tables(carbon_parts)
+    if energy.empty:
+        return None
+    return build(ctx, node, energy=energy, carbon=carbon)
+
+
+def indicators_for(
+    ctx,
+    node: str | None = None,
+    *,
+    members: Sequence[str] | None = None,
+) -> Indicators | None:
+    """Indicators for one node or an ad-hoc group of real locations.
+
+    Pass **either** ``node`` (a real location, a configured group, or the
+    study-wide aggregate) **or** ``members`` (location codes, and/or group
+    codes that ``ctx.locations_for`` can expand).  Internal trade between
+    members cancels.  No extra library: this is the same graph algebra as
+    :func:`for_node`.
+    """
+    if (node is None) == (members is None):
+        raise ValueError("pass exactly one of node= or members=")
+    if node is not None:
+        return for_node(ctx, node)
+
+    locations = _expand_members(ctx, members)
+    if locations is None:
+        return None
+    scoped, code = _context_for_locations(ctx, locations)
+    key = ("indicators", str(code))
+    if key in scoped._files:
+        return scoped._files[key]
+    cached = _indicators_from_member_cache(scoped, locations, code)
+    if cached is not None:
+        scoped._files[key] = cached
+        return cached
+    return for_node(scoped, code)
+
+
+def self_sufficiency(
+    ctx,
+    node: str | None = None,
+    *,
+    members: Sequence[str] | None = None,
+) -> pd.DataFrame | None:
+    """Annual self-sufficiency in percent for primary energy and electricity.
+
+    Returns a DataFrame indexed by year with columns ``primary`` and
+    ``electricity``, or ``None`` when flows cannot be extracted.  Values may
+    exceed 100 (net exporter) and are not clipped.
+
+    >>> self_sufficiency(ctx, node="BEWAL")
+    >>> self_sufficiency(ctx, node="BE")                 # configured group
+    >>> self_sufficiency(ctx, members=["BEWAL", "BEVLG", "BEBRU"])
+    """
+    detail = self_sufficiency_detail(ctx, node=node, members=members)
+    return None if detail is None else detail.ratio.copy()
+
+
+def self_sufficiency_detail(
+    ctx,
+    node: str | None = None,
+    *,
+    members: Sequence[str] | None = None,
+) -> SelfSufficiency | None:
+    """Like :func:`self_sufficiency`, plus the TWh domestic / net-import balances."""
+    data = indicators_for(ctx, node=node, members=members)
+    if data is None:
+        logger.warning("no indicators; self-sufficiency skipped")
+        return None
+    return data.self_sufficiency

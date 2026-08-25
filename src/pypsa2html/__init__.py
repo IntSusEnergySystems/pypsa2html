@@ -33,6 +33,7 @@ __all__ = [
     "Section",
     "load_manifest",
     "build_site",
+    "self_sufficiency",
 ]
 
 
@@ -46,3 +47,15 @@ def build_site(config, **kwargs):
     from .build import build_site as _build_site
 
     return _build_site(config, **kwargs)
+
+
+def self_sufficiency(ctx, node: str | None = None, *, members=None):
+    """Annual self-sufficiency (%) for primary energy and electricity.
+
+    Pass ``node`` (a real location, a configured group, or the study-wide
+    aggregate) or ``members`` (an ad-hoc list of location codes).  See
+    :func:`pypsa2html.indicators.self_sufficiency`.
+    """
+    from .indicators import self_sufficiency as _self_sufficiency
+
+    return _self_sufficiency(ctx, node=node, members=members)

@@ -120,6 +120,26 @@ They obey the same rules: node membership through `ctx.resolver` /
 literals. Both are windowed by the caller (`start` / `stop`), and both are
 sign-consistent: positive means "drawn from the bus being balanced".
 
+Self-sufficiency is **not** a third extractor. It is indicator algebra on the
+closed energy graph:
+
+```python
+from pypsa2html import self_sufficiency
+
+self_sufficiency(ctx, node="BEWAL")                 # one location
+self_sufficiency(ctx, node="BE")                    # configured group
+self_sufficiency(ctx, members=["BEWAL", "BEVLG"])   # ad-hoc group
+```
+
+Pass **either** `node` or `members`, never both. `members` may include group
+codes (they are expanded through `ctx.locations_for`); unknown names are
+skipped with a warning. The live `NodeSet` is not mutated: an ad-hoc group
+that is not already in `nodes.groups` is attached to a shallow copy of `ctx`.
+Internal trade cancels. The return value is a year × `{primary, electricity}`
+frame in percent, unclipped (a net exporter is above 100). The TWh balances
+are on `indicators.self_sufficiency_detail(...)`. See
+[D18](DESIGN_DECISIONS.md#d18--self-sufficiency-is-two-ratios-and-a-members-list).
+
 ## 4. Charts (`pypsa2html/charts/`)
 
 One module per family; the manifest's `builder` field is `<module>.<function>`

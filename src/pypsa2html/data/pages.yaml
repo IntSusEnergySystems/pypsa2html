@@ -29,7 +29,7 @@ pages:
       - {id: scenario_capacities,    title: Capacities,                      builder: scenario.capacities,           unit: GW}
       - {id: scenario_storage,       title: Storage capacities,              builder: scenario.storage_capacities,   unit: GWh}
       - {id: scenario_cc,            title: Carbon capture capacities,       builder: scenario.cc_capacities,        unit: MtCO2/year, enabled: false}
-      - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%', scope: real}
+      - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%'}
 
   - id: emissions
     title: Emissions
@@ -51,6 +51,8 @@ pages:
       - {id: res_share,              title: Renewable energy share,                          builder: indicators.renewable_share,      unit: '%',        enabled: false}
       - {id: fec_by_origin,          title: Final energy consumption by origin,              builder: indicators.fec_by_origin,        unit: TWh/year,   enabled: false}
       - {id: domestic_share,         title: Share of domestic production,                    builder: indicators.domestic_share,       unit: '%',        enabled: false}
+      - {id: self_sufficiency,         title: Self-sufficiency,                                builder: indicators.self_sufficiency,         unit: '%'}
+      - {id: self_sufficiency_balance, title: Self-sufficiency balance,                        builder: indicators.self_sufficiency_balance, unit: TWh/year}
       - {id: fec_by_sector,          title: Final energy consumption by each sector,         builder: indicators.fec_by_sector,        unit: TWh/year}
       - {id: secondary_mix,          title: Mix of secondary energies,                       builder: indicators.secondary_mix,        unit: TWh/year,   enabled: false}
       - {id: fec_by_carrier,         title: Final energy consumption by carrier per sector,  builder: indicators.fec_by_carrier,       unit: TWh/year}

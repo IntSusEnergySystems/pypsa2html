@@ -433,3 +433,49 @@ therefore shows up without a Python `if carrier == "CCGT CC"`. Adding another
 
 **Reversibility: Easy** — the helper is `pypsa2html.carriers`; discovery is
 one function in `extract/emissions.py`.
+
+---
+
+## D18 — Self-sufficiency is two ratios and a members list
+
+**Decided.** The legacy SEPIA "local production coverage" chart mixed three
+ideas: per-carrier geographic coverage, the renewable share of gas and oil
+(substituted into the same frame), and a Belgium-only pie of 2050 imports.
+Ratios were clipped at 100 %, so a net exporter looked the same as autarky,
+and the overview "energy independence" series was the unweighted mean of
+those clipped columns.
+
+`pypsa2html` reports two ratios, both unclipped:
+
+| Metric | Domestic | Denominator |
+|---|---|---|
+| **Primary energy** | every `prod → *_pe` edge | domestic + imports − exports |
+| **Electricity** | inflows to `elc_se` except `imp` | domestic generation + net electricity trade |
+
+Nuclear kWh generated inside the node are domestic electricity and an
+imported primary fuel (uranium). That is the point of having two numbers.
+A ratio above 100 % is a net exporter.
+
+The spatial interface is the same one the rest of the report already uses:
+
+```python
+self_sufficiency(ctx, node="BEWAL")                 # real location
+self_sufficiency(ctx, node="BE")                    # nodes.groups entry
+self_sufficiency(ctx, members=["BEWAL", "BEVLG"])   # ad-hoc, no extra library
+```
+
+`members` is expanded through `ctx.locations_for` (group codes allowed) and
+matched against the configured NodeSet before anything is extracted, so
+`members=['BEVLG','BEWAL','BEBRU']` on a config that already has a `BE`
+group is the same cache key as `node='BE'`. An unmatched list is attached as
+a transient group on a **copy** of `ctx`; page generation never sees it.
+Internal trade cancels because electricity (and hydrogen) trade is the
+residual of the group's closed graph, not a sum of regional import columns.
+
+| | Pro | Con |
+|---|---|---|
+| **Two ratios + members (chosen)** | Matches the question energy-system studies actually ask; works for Wallonia, Belgium, and "these three nodes" without a new dependency | Primary energy still counts imported electricity as imported energy (energy-content, not primary-equivalent) |
+| *Mean of per-carrier coverage (rejected)* | One number | Mixes geography with renewable share; clip hides exporters |
+| *Pie of 2050 imports (rejected)* | Shows import mix | Hardcoded to Belgium, two scenarios, one year |
+
+**Reversibility: Easy** — `plots: {self_sufficiency: false, self_sufficiency_balance: false, energy_independence: false}`.

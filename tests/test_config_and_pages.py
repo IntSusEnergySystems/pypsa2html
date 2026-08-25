@@ -219,9 +219,13 @@ def test_section_scope():
         def __init__(self, aggregate):
             self.aggregate = aggregate
 
-    assert section.scope == "real"
+    assert section.scope == "all"
     assert section.applies_to(Node(False))
-    assert not section.applies_to(Node(True))
+    assert section.applies_to(Node(True))
+
+    ss = next(s for s in m["fec"].sections if s.id == "self_sufficiency")
+    assert ss.scope == "all"
+    assert ss.applies_to(Node(True))
 
 
 def test_groups_are_loaded_from_yaml(tmp_path):
@@ -279,10 +283,11 @@ def test_negawatt_example_declares_be_group_and_eu_study_wide():
     assert "BEVLG" in cfg.nodes.labels
 
 
-def test_pypsa_wal_example_has_no_be_group():
+def test_pypsa_wal_example_declares_be_group():
     from pathlib import Path
 
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "pypsa-wal.yaml")
     assert cfg.nodes.focus == "BEWAL"
-    assert cfg.nodes.groups == []
     assert cfg.nodes.aggregate.code == "ALL"
+    assert [g.code for g in cfg.nodes.groups] == ["BE"]
+    assert cfg.nodes.groups[0].members == ["BEVLG", "BEWAL", "BEBRU"]

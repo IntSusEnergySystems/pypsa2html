@@ -104,9 +104,7 @@ def test_cumulative_emissions_use_horizon_weights(indicator_ctx, energy_flows_be
     pd.testing.assert_frame_equal(result.ghg_sector_cum, expected)
 
 
-def test_ghg_sector_cum_does_not_mutate_ghg_sector(
-    indicator_ctx, energy_flows_be, carbon_flows_be
-):
+def test_ghg_sector_cum_does_not_mutate_ghg_sector(indicator_ctx, energy_flows_be, carbon_flows_be):
     result = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
     before = result.ghg_sector.copy(deep=True)
     _ = result.ghg_sector_cum
@@ -181,3 +179,95 @@ def test_region_value_does_not_treat_bewal_as_be():
     assert indicators._region_value(series, "BE") == pytest.approx(2.0)
     assert indicators._region_value(series, "BEWAL") == pytest.approx(1.0)
     assert pd.isna(indicators._region_value(series, "FR"))
+
+
+def test_sufficiency_ratio_exceeds_100_for_net_exporter():
+    """The legacy coverage ratios clipped at 100; exporters must stay visible."""
+    domestic = pd.Series([80.0, 120.0], index=[2030, 2050])
+    net_import = pd.Series([20.0, -30.0], index=[2030, 2050])
+    ratio = indicators._sufficiency_ratio(domestic, net_import)
+    assert ratio.loc[2030] == pytest.approx(80.0)
+    assert ratio.loc[2050] == pytest.approx(120.0 / 90.0 * 100.0)
+    empty = indicators._sufficiency_ratio(
+        pd.Series([0.0], index=[2030]), pd.Series([0.0], index=[2030])
+    )
+    assert pd.isna(empty.loc[2030])
+
+
+def test_sum_long_tables_adds_year_columns(energy_flows_be):
+    doubled = indicators._sum_long_tables([energy_flows_be, energy_flows_be])
+    years = [c for c in energy_flows_be.columns if c not in ("code", "label", "unit")]
+    sample = energy_flows_be["code"].iloc[0]
+    original = energy_flows_be.set_index("code").loc[sample, years].astype(float)
+    summed = doubled.set_index("code").loc[sample, years].astype(float)
+    pd.testing.assert_series_equal(summed, original * 2, check_names=False)
+
+
+def test_self_sufficiency_from_negawatt_flows(
+    indicator_ctx, energy_flows_be, carbon_flows_be, energy_flows_eu, carbon_flows_eu
+):
+    be = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
+    eu = _build(indicator_ctx, "EU", energy_flows_eu, carbon_flows_eu)
+
+    be_ss = be.self_sufficiency.ratio
+    assert list(be_ss.columns) == ["primary", "electricity"]
+    assert be_ss.notna().any().all()
+    # Belgium is a net energy importer in the reference run.
+    assert (be_ss["primary"] < 100).all()
+    assert (be_ss["electricity"] > 0).all()
+    # Not the legacy "mean of clipped per-carrier coverage".
+    assert not be_ss["primary"].equals(be.cov_ratio.mean(axis=1))
+
+    eu_ss = eu.self_sufficiency.ratio
+    # Study-wide: no electricity trade with the world outside the model.
+    assert (eu_ss["electricity"] - 100).abs().max() < 1e-6
+    # Fossil and uranium imports still make primary energy < 100 %.
+    assert (eu_ss["primary"] < 100).all()
+
+
+def test_self_sufficiency_members_matches_node(indicator_ctx, energy_flows_be, carbon_flows_be):
+    result = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
+    indicator_ctx._files[("indicators", "BE")] = result
+    by_node = indicators.self_sufficiency(indicator_ctx, node="BE")
+    by_members = indicators.self_sufficiency(indicator_ctx, members=["BE"])
+    pd.testing.assert_frame_equal(by_node, by_members)
+
+
+def test_self_sufficiency_rejects_neither_or_both(indicator_ctx):
+    with pytest.raises(ValueError, match="exactly one"):
+        indicators.self_sufficiency(indicator_ctx)
+    with pytest.raises(ValueError, match="exactly one"):
+        indicators.self_sufficiency(indicator_ctx, node="BE", members=["BE"])
+
+
+def test_self_sufficiency_members_sums_cached_flows(
+    indicator_ctx, energy_flows_be, carbon_flows_be
+):
+    """An ad-hoc group uses cached member tables and does not mutate NodeSet."""
+    from copy import copy
+
+    from pypsa2html.nodes import build_node_set
+
+    ctx = copy(indicator_ctx)
+    ctx._files = {}
+    ctx.nodes = build_node_set(
+        [],
+        include=["BEVLG", "BEWAL", "BEBRU"],
+        labels={"BEVLG": "Flanders", "BEWAL": "Wallonia", "BEBRU": "Brussels"},
+        focus="BEWAL",
+        aggregate_code="ALL",
+        aggregate_label="All",
+    )
+    for loc in ("BEVLG", "BEWAL", "BEBRU"):
+        ctx._files[("energy_flows", loc)] = energy_flows_be
+        ctx._files[("carbon_flows", loc)] = carbon_flows_be
+
+    by_node = indicators.self_sufficiency(ctx, node="BEWAL")
+    by_one_member = indicators.self_sufficiency(ctx, members=["BEWAL"])
+    pd.testing.assert_frame_equal(by_node, by_one_member)
+
+    two = indicators.self_sufficiency(ctx, members=["BEWAL", "BEVLG"])
+    assert two is not None
+    assert list(two.columns) == ["primary", "electricity"]
+    assert two.notna().any().all()
+    assert "BEVLG+BEWAL" not in ctx.nodes.codes

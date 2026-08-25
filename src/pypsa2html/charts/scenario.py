@@ -378,32 +378,50 @@ def cc_capacities(ctx, node: str, section) -> go.Figure | None:
 
 
 def energy_independence(ctx, node: str, section) -> go.Figure | None:
-    """Domestic-supply coverage across scenarios (mean over traded carriers)."""
+    """Self-sufficiency across scenarios, for primary energy and electricity.
+
+    Replaces the legacy mean-of-clipped-carrier-coverage metric, which mixed
+    geographic self-sufficiency with the renewable share of gas and oil and
+    hid net exporters.  Groups and the study-wide aggregate are included —
+    internal trade cancels, so ``BE`` is Belgium, not the sum of regional
+    ratios.
+    """
     scenarios = scenario_contexts(ctx)
     if not scenarios:
         logger.warning("section %s: no scenario contexts for node %s", section.id, node)
         return None
 
-    series: dict[str, pd.Series] = {}
-    for label, sctx in scenarios.items():
-        data = indicators.for_node(sctx, node)
-        if data is None:
-            logger.warning(
-                "section %s: no indicators for scenario %s, node %s",
-                section.id,
-                label,
-                node,
+    figures = []
+    for kind, code in indicators.SELF_SUFFICIENCY_KINDS:
+        label = str(ctx.taxonomy.label(code))
+        series: dict[str, pd.Series] = {}
+        for scen_label, sctx in scenarios.items():
+            data = indicators.for_node(sctx, node)
+            if data is None:
+                logger.warning(
+                    "section %s: no indicators for scenario %s, node %s",
+                    section.id,
+                    scen_label,
+                    node,
+                )
+                continue
+            series[scen_label] = data.self_sufficiency.ratio[kind]
+        if not series:
+            continue
+        frame = pd.DataFrame(series)
+        add_chart_data(ctx, node, f"{section.title} - {label}", section.unit, frame.T)
+        fig = _scenario_line_chart(frame, unit=section.unit)
+        if fig is not None:
+            fig.add_hline(
+                y=100,
+                line_dash="dash",
+                line_color="#888888",
+                annotation_text="self-sufficient",
+                annotation_position="top left",
             )
-            continue
-        cov = data.cov_ratio
-        if cov is None or cov.empty:
-            continue
-        series[label] = cov.mean(axis=1)
+        figures.append((label, fig))
 
-    if not series:
+    if not figures:
         logger.warning("section %s: nothing to plot for node %s", section.id, node)
         return None
-
-    frame = pd.DataFrame(series)
-    add_chart_data(ctx, node, section.title, section.unit, frame.T)
-    return _scenario_line_chart(frame, unit=section.unit)
+    return combine_charts(figures)
