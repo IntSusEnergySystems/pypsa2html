@@ -53,7 +53,7 @@ offshore wind,costs,offshore wind,21
 ^gas$,costs,Fossil fuels & powerplants,51
 ^coal$,costs,Fossil fuels & powerplants,52
 ^lignite$,costs,Fossil fuels & powerplants,53
-^CCGT$,costs,Fossil fuels & powerplants,54
+CCGT,costs,Fossil fuels & powerplants,54
 ^OCGT$,costs,Fossil fuels & powerplants,55
 ^coal powerplants$,costs,Fossil fuels & powerplants,56
 ^oil powerplants$,costs,Fossil fuels & powerplants,57
@@ -199,7 +199,7 @@ offshore wind,map,offshore wind,21
 ^gas$,map,Fossil fuels & powerplants,51
 ^coal$,map,Fossil fuels & powerplants,52
 ^lignite$,map,Fossil fuels & powerplants,53
-^CCGT$,map,Fossil fuels & powerplants,54
+CCGT,map,Fossil fuels & powerplants,54
 ^OCGT$,map,Fossil fuels & powerplants,55
 ^coal powerplants$,map,Fossil fuels & powerplants,56
 ^oil powerplants$,map,Fossil fuels & powerplants,57

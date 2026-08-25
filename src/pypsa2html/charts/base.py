@@ -40,6 +40,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 
+from pypsa2html.carriers import ccs_parent_carrier
 from pypsa2html.datafiles import load_tech_colors, load_tech_groups
 
 logger = logging.getLogger(__name__)
@@ -253,8 +254,9 @@ def resolve_tech_color(
 ) -> str:
     """Look up a tech colour with case / rename fallbacks.
 
-    Order: exact match → case-insensitive → :func:`normalize_carrier` → a
-    stable distinct colour derived from the name (never flat grey).
+    Order: exact match → case-insensitive → :func:`normalize_carrier` →
+    capture-suffix fallback (``{tech} CC`` uses the CCS tint, or the parent
+    colour) → a stable distinct colour derived from the name (never flat grey).
     """
     palette = palette if palette is not None else tech_color_map()
     key = str(name)
@@ -268,6 +270,15 @@ def resolve_tech_color(
         return palette[norm]
     if norm.lower() in lower:
         return lower[norm.lower()]
+    parent = ccs_parent_carrier(key) or ccs_parent_carrier(norm)
+    if parent:
+        # Dedicated CCS tint if the palette has one; otherwise the unabated sibling.
+        for ccs_key in ("CCS", "CC", "CCUS"):
+            if ccs_key in palette:
+                return palette[ccs_key]
+            if ccs_key.lower() in lower:
+                return lower[ccs_key.lower()]
+        return resolve_tech_color(parent, palette)
     # Stable per-name pick from the fallback palette.
     idx = sum(ord(c) for c in key) % len(_FALLBACK_COLORS)
     return _FALLBACK_COLORS[idx]

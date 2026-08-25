@@ -41,7 +41,7 @@ Deliberate differences from the négaWatt original
 
 Quirks kept on purpose
 ----------------------
-Six rows use ``match="prefix"`` because the original matched a substring of
+Several rows use ``match="prefix"`` because the original matched a substring of
 the link *name* and therefore swept up the CC variant of the technology as
 well: ``coal`` also counts ``coal for industry``, ``SMR`` also counts
 ``SMR CC``, and ``biogas to gas``, ``urban central gas CHP``, ``waste CHP``
@@ -51,6 +51,11 @@ port that feeds the atmosphere with one that feeds the CO2 store, so the row
 turns negative once carbon capture dominates.  The behaviour is reproduced
 rather than corrected so that the numbers still match the published sheets;
 switching any of these to ``match="exact"`` is a one-word change.
+
+``CCGT`` and ``OCGT`` are **exact**.  A prefix match would swallow
+``CCGT CC`` / ``OCGT CC`` residual into the unabated row and miss the
+captured port.  Unlisted capture links are added by topology instead
+(:func:`_discover_capture_flows`).
 """
 
 from __future__ import annotations
@@ -60,6 +65,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from ..carriers import fold_ccs_variants
 from ..context import BuildContext
 from .flows import (
     _cache_get,
@@ -127,12 +133,12 @@ CARBON_FLOWS: tuple[CarbonFlow, ...] = (
     # Fossil power plants.  Each technology appears twice: once as a link with
     # a CO2 port, once as a generator burning fuel implicitly.  A given plant
     # is only ever one of the two, so the rows never overlap.
-    CarbonFlow("OCGT", "gas", ATMOSPHERE, ("OCGT",), 2, match="prefix"),
+    CarbonFlow("OCGT", "gas", ATMOSPHERE, ("OCGT",), 2),
     CarbonFlow("OCGT", "gas", ATMOSPHERE, ("OCGT",), component="generators", sign=1.0,
-               intensity=("gas", "CO2 intensity"), match="prefix"),
-    CarbonFlow("CCGT", "gas", ATMOSPHERE, ("CCGT",), 2, match="prefix"),
+               intensity=("gas", "CO2 intensity")),
+    CarbonFlow("CCGT", "gas", ATMOSPHERE, ("CCGT",), 2),
     CarbonFlow("CCGT", "gas", ATMOSPHERE, ("CCGT",), component="generators", sign=1.0,
-               intensity=("gas", "CO2 intensity"), match="prefix"),
+               intensity=("gas", "CO2 intensity")),
     CarbonFlow("lignite", "coal", ATMOSPHERE, ("lignite",), 2, match="prefix"),
     CarbonFlow("lignite", "coal", ATMOSPHERE, ("lignite",), component="generators", sign=1.0,
                intensity=("lignite", "CO2 intensity"), match="prefix"),
@@ -254,6 +260,86 @@ def _carrier_mask(static: pd.DataFrame, flow: CarbonFlow) -> pd.Series:
     return carriers.isin(flow.carriers)
 
 
+def _carbon_flow_covers(carrier: str, flows: tuple[CarbonFlow, ...] = CARBON_FLOWS) -> bool:
+    """True when ``carrier`` is already counted by a static :data:`CARBON_FLOWS` row."""
+    name = str(carrier)
+    for flow in flows:
+        if flow.match == "prefix":
+            if any(name.startswith(c) for c in flow.carriers):
+                return True
+        elif name in flow.carriers:
+            return True
+    return False
+
+
+def _bus_carrier(network, bus) -> str:
+    if bus is None or (isinstance(bus, float) and pd.isna(bus)) or bus == "":
+        return ""
+    buses = getattr(network, "buses", None)
+    if buses is None or bus not in buses.index:
+        return str(bus)
+    if "carrier" not in buses.columns:
+        return str(bus)
+    value = buses.at[bus, "carrier"]
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return str(bus)
+    return str(value)
+
+
+def _is_atmosphere_carrier(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in {ATMOSPHERE.lower(), "co2 atmosphere"}
+
+
+def _is_stored_carrier(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in {STORED.lower(), "co2 stored", "co2 store"}
+
+
+def _discover_capture_flows(network) -> tuple[CarbonFlow, ...]:
+    """Capture links not listed in :data:`CARBON_FLOWS`, found by topology.
+
+    A Link with a port on ``co2 atmosphere`` *and* a port on ``co2 stored`` is
+    a capture plant.  The residual port becomes ``{carrier}`` (folded onto the
+    unabated sibling by :func:`~pypsa2html.carriers.fold_ccs_variants` when
+    that sibling is in the taxonomy) and the stored port becomes
+    ``{carrier}_2``.  Listed carriers -- including those swallowed by a
+    prefix match -- are skipped so this cannot double-count SMR CC / CHP CC.
+    """
+    links = getattr(network, "links", None)
+    if links is None or getattr(links, "empty", True) or "carrier" not in links.columns:
+        return ()
+
+    extra: list[CarbonFlow] = []
+    seen: set[str] = set()
+    for carrier, group in links.groupby(links["carrier"].astype(str), sort=False):
+        if carrier in seen or _carbon_flow_covers(carrier):
+            continue
+        seen.add(carrier)
+        row = group.iloc[0]
+        atm_port = stored_port = None
+        fuel = None
+        for port in range(6):
+            col = f"bus{port}"
+            if col not in row.index:
+                continue
+            bus_carrier = _bus_carrier(network, row[col])
+            if not bus_carrier:
+                continue
+            if _is_atmosphere_carrier(bus_carrier):
+                atm_port = port
+            elif _is_stored_carrier(bus_carrier):
+                stored_port = port
+            elif port == 0:
+                fuel = bus_carrier
+        if atm_port is None or stored_port is None:
+            continue
+        source = fuel or "gas"
+        extra.append(CarbonFlow(carrier, source, ATMOSPHERE, (carrier,), atm_port))
+        extra.append(CarbonFlow(carrier, source, STORED, (carrier,), stored_port))
+    return tuple(extra)
+
+
 class _Reductions:
     """Per-horizon annual totals, computed once for all 66 rows.
 
@@ -373,10 +459,12 @@ def _agriculture_ghg(ctx: BuildContext, node: str, horizon: int) -> float | None
 def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataFrame:
     """The full carbon balance for one node and horizon, in MtCO2."""
     reductions = _Reductions(ctx, node, horizon)
+    discovered = _discover_capture_flows(reductions.network)
+    flows = CARBON_FLOWS + discovered
 
     rows = []
     previous = 0.0
-    for flow, entry in zip(CARBON_FLOWS, _entry_names(CARBON_FLOWS)):
+    for flow, entry in zip(flows, _entry_names(flows), strict=True):
         value = previous if flow.same_as_previous else _flow_value(ctx, reductions, flow)
         previous = value
         rows.append((entry, flow.label, flow.source, flow.target, value))
@@ -460,22 +548,23 @@ def carbon_flows(ctx: BuildContext, node: str) -> pd.DataFrame:
 
     table = ctx.taxonomy.carrier_flows_carbon
     threshold = ctx.config.model.flow_threshold
+    known = set(table["entry"])
+    folded = {column: fold_ccs_variants(series, known) for column, series in values.items()}
     out = table[["entry", "label", "unit", "code"]].copy()
-    for column, series in values.items():
+    for column, series in folded.items():
         mapped = out["entry"].map(series).astype(float).fillna(0.0)
         # By magnitude: a net-negative CO2 row (net-zero systems have several)
         # is a result, not noise.  ``value >= 0.1`` deleted all of them.
         out[column] = mapped.where(mapped.abs() >= threshold, 0.0)
 
-    known = set(table["entry"])
-    for column, series in values.items():
+    for column, series in folded.items():
         unknown = sorted(set(series.index) - known)
         if unknown:
             logger.debug(
                 "%s: %d carbon row(s) with no code: %s", column, len(unknown), unknown
             )
 
-    columns = list(values)
+    columns = list(folded)
     aggregation = {"label": "first", "unit": "first", **{c: "sum" for c in columns}}
     grouped = out.groupby("code", as_index=False, sort=False).agg(aggregation)
     result = grouped[["code", "label", "unit", *columns]]

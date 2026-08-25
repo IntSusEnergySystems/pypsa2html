@@ -60,6 +60,7 @@ import logging
 
 import pandas as pd
 
+from ..carriers import fold_ccs_variants
 from ..context import BuildContext
 
 logger = logging.getLogger(__name__)
@@ -664,20 +665,21 @@ def _assemble(
 ) -> pd.DataFrame:
     """Join the per-horizon series onto the carrier->code table."""
     threshold = ctx.config.model.flow_threshold
+    known = set(table["entry"])
+    folded = {column: fold_ccs_variants(series, known) for column, series in values.items()}
     out = table[["entry", "label", "unit", "code"]].copy()
-    for column, series in values.items():
+    for column, series in folded.items():
         mapped = out["entry"].map(series).astype(float).fillna(0.0)
         # Drop by *magnitude*: the legacy `value >= 0.1` deleted every negative
         # number, which silently removed net-negative rows.
         out[column] = mapped.where(mapped.abs() >= threshold, 0.0)
 
-    known = set(table["entry"])
-    for column, series in values.items():
+    for column, series in folded.items():
         unknown = sorted(set(series.index) - known)
         if unknown:
             logger.debug("%s: %d flow(s) with no code: %s", column, len(unknown), unknown)
 
-    columns = list(values)
+    columns = list(folded)
     aggregation = {"label": "first", "unit": "first", **{c: "sum" for c in columns}}
     # Several entries legitimately share one code (e.g. `prohydclamm`); the
     # legacy writer summed them with a groupby on the code column.

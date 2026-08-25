@@ -406,3 +406,30 @@ telling a story the model does not support.
 **Reversibility: Easy** — `plots: {ev_charging_winter: false, …}` switches the
 sections off; the counterfactual rule is one function
 (`extract.ev._counterfactual`).
+
+---
+
+## D17 — Capture variants are a naming convention, not a technology list
+
+**Decided.** PyPSA-Eur names a capture-equipped sibling by appending ` CC`
+to the unabated carrier (`CCGT CC`, `SMR CC`, `coal CC`, …). The report
+treats that suffix as a *convention*:
+
+| Layer | What happens |
+|---|---|
+| Energy Sankey | Unmapped `{tech} CC` / `{tech} CC_2` fold onto `{tech}` / `{tech}_2` when those entries exist (`carriers.fold_ccs_variants`). Explicit CSV rows (SMR CC, CHP CC, …) still win. |
+| Carbon Sankey | `CCGT` / `OCGT` match **exactly**, so a CCS sibling is not booked as unabated. Unlisted four-bus capture Links (atmosphere + stored ports) are discovered by topology. Residual CO₂ folds onto the parent; captured CO₂ needs a `carrier_flows_carbon` row to appear as a Sankey edge (`CCGT CC_2` → `emmccgtcc`). Sequestration still sees the stored port either way. |
+| Capacities | Topology already keeps any Link attached to AC. The faceted CCGT panel also draws `{tech} CC` siblings present in the table. Costs/map group any name containing `CCGT` with fossil power. |
+| Colour | An explicit `CCGT CC` swatch if present; otherwise `{tech} CC` uses the CCS tint. |
+
+A model-specific plant such as pypsa-wal's natural-gas CCGT with capture
+therefore shows up without a Python `if carrier == "CCGT CC"`. Adding another
+`{fuel} CC` power plant needs at most a captured-CO₂ CSV row for the Sankey.
+
+| | Pro | Con |
+|---|---|---|
+| **Suffix + topology (chosen)** | New CCS plants work; library stays model-agnostic | Captured-CO₂ Sankey edge is still a taxonomy row (the residual is free) |
+| *Hardcode `CCGT CC` (rejected)* | Obvious at the call site | The next Allam / coal-CC / methanol-CCGT-CC fork repeats the patch |
+
+**Reversibility: Easy** — the helper is `pypsa2html.carriers`; discovery is
+one function in `extract/emissions.py`.

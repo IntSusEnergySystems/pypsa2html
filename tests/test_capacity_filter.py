@@ -46,9 +46,10 @@ def _toy_network() -> SimpleNamespace:
     )
     links = pd.DataFrame(
         {
-            "bus0": ["b_gas", "b_gas", "b_bm", "b_oil", "b_gas", "b_h2", "b_lignite"],
-            "bus1": ["b_ac", "b_heat", "b_heat", "b_naphtha", "b_gas", "b_h2", "b_ac"],
-            "bus2": [None, None, None, None, None, None, None],
+            "bus0": ["b_gas", "b_gas", "b_bm", "b_oil", "b_gas", "b_h2", "b_lignite", "b_gas"],
+            "bus1": ["b_ac", "b_heat", "b_heat", "b_naphtha", "b_gas", "b_h2", "b_ac", "b_ac"],
+            "bus2": [None, None, None, None, None, None, None, "b_co2"],
+            "bus3": [None, None, None, None, None, None, None, "b_co2"],
             "carrier": [
                 "CCGT",
                 "urban central gas boiler",
@@ -57,9 +58,10 @@ def _toy_network() -> SimpleNamespace:
                 "gas pipeline",
                 "H2 pipeline",
                 "lignite",  # power plant Link — keep
+                "CCGT CC",  # four-bus capture plant — keep (AC is a service bus)
             ],
         },
-        index=["l1", "l2", "l3", "l4", "l5", "l6", "l7"],
+        index=["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8"],
     )
     storage_units = pd.DataFrame(
         {"bus": ["b_ac"], "carrier": ["PHS"]},
@@ -87,6 +89,7 @@ def test_power_keeps_service_attached_drops_fuel_and_vents():
     power, storage = capacity_keys_from_network(_toy_network())
     assert ("Generator", "solar") in power
     assert ("Link", "CCGT") in power
+    assert ("Link", "CCGT CC") in power
     assert ("Link", "urban central gas boiler") in power
     assert ("Link", "urban central solid biomass CHP") in power
     assert ("StorageUnit", "PHS") in power

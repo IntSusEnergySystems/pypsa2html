@@ -141,6 +141,17 @@ def test_carrier_mask_prefix_matches_cc_variants():
     assert list(static.index[mask]) == ["a", "b"]
 
 
+def test_ccgt_carbon_is_exact_and_does_not_swallow_ccs():
+    """A prefix match would book CCGT CC residual as unabated CCGT and drop capture."""
+    static = pd.DataFrame({"carrier": ["CCGT", "CCGT CC", "OCGT"]}, index=["a", "b", "c"])
+    flow = next(
+        item for item in CARBON_FLOWS if item.label == "CCGT" and item.component == "links"
+    )
+    assert flow.match == "exact"
+    mask = _carrier_mask(static, flow)
+    assert list(static.index[mask]) == ["a"]
+
+
 @pytest.mark.needs_model
 @requires_model("negawatt")
 def test_energy_flows_reads_a_real_network():

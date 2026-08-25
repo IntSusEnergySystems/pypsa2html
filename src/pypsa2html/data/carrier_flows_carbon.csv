@@ -2,6 +2,7 @@ entry,label,unit,code
 process emissions,process emissions,MtCO2,emmprocess
 process emissions CC,process emissions CC,MtCO2,emmprocessccst
 CCGT,CCGT emissions,MtCO2,emmccgt
+CCGT CC_2,CCGT with CCS captured,MtCO2,emmccgtcc
 lignite,lignite emissions,MtCO2,emmlig
 SMR CC,SMR emissions,MtCO2,emmsmr
 SMR CC_2,SMR emissions captored,MtCO2,emmsmrcc

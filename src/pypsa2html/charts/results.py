@@ -15,6 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from ..carriers import ccs_parent_carrier
 from ..extract.tables import capacity_table, cost_table, demand_table
 from .base import (
     FONT_SIZE,
@@ -109,6 +110,25 @@ def _panel_title(techs: list[str]) -> str:
     return ", ".join(_smart_capitalize(t) for t in techs)
 
 
+def _expand_capacity_group(group: list[str], index) -> list[str]:
+    """Keep curated panel members, and append CCS siblings present in ``index``.
+
+    ``CCGT`` therefore also shows ``CCGT CC`` when that carrier exists, without
+    listing every capture-equipped plant in :data:`_POWER_GROUPS`.
+    """
+    names = list(group)
+    seen = set(names)
+    for extra in index:
+        extra_s = str(extra)
+        if extra_s in seen:
+            continue
+        parent = ccs_parent_carrier(extra_s)
+        if parent in seen:
+            names.append(extra_s)
+            seen.add(extra_s)
+    return names
+
+
 def _faceted_capacity_chart(
     table: pd.DataFrame,
     groups: list[list[str]],
@@ -156,7 +176,7 @@ def _faceted_capacity_chart(
             row_idx = 1 if i < cols else 2
             col_idx = i + 1 if i < cols else i - cols + 1
 
-        for tech in tech_group:
+        for tech in _expand_capacity_group(tech_group, data.index):
             if tech in data.index:
                 series = data.loc[tech, years]
             else:
