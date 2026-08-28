@@ -143,3 +143,70 @@ def capacity_carriers_from_network(
     """Return carrier *names* only (loses Generator vs Link distinction)."""
     keys, storage = capacity_keys_from_network(n)
     return frozenset(carrier for _comp, carrier in keys), storage
+
+
+#: Carrier substrings whose ``p_nom`` must be restated on the heat side before
+#: they can be summed into one "power-to-heat" bar.  Matches the ``capacities``
+#: view rules in ``tech_groups.csv``.
+_P2H_PATTERNS = ("heat pump", "resistive heater")
+
+
+def _is_heat_bus(bus_carrier: Any) -> bool:
+    if bus_carrier is None or (isinstance(bus_carrier, float) and pd.isna(bus_carrier)):
+        return False
+    name = str(bus_carrier)
+    return "heat" in name and "vent" not in name
+
+
+def heat_output_scaling(n: Any) -> dict[str, float]:
+    """Factors that put every power-to-heat ``p_nom`` on the **heat** side.
+
+    Power-to-heat capacities are not comparable as PyPSA stores them:
+
+    * a **heat pump** is a *reversed* link — ``bus0`` is the heat bus and
+      ``bus1`` the electricity bus, with ``efficiency`` = 1/COP — so its
+      ``p_nom`` is already **MW_th**;
+    * a **resistive heater** is a normal link — ``bus0`` electricity,
+      ``bus1`` heat — so its ``p_nom`` is **MW_e**.
+
+    Summing them into one bar adds MW_th to MW_e and overstates heat pumps by
+    the COP relative to resistive heaters.  Returning to a single side is the
+    only way the "power-to-heat" panel means anything.
+
+    The heat side is chosen because it needs no assumption: heat-pump ``p_nom``
+    is already thermal, while the electrical side of a heat pump has no fixed
+    value at all (``efficiency`` is a time series).  Resistive heaters are
+    scaled by their own efficiency, which is a scalar.
+
+    Returns ``{carrier: factor}`` for power-to-heat Link carriers only;
+    carriers already on the heat side get ``1.0``.  Carriers absent from the
+    mapping must be left untouched by the caller.
+    """
+    out: dict[str, float] = {}
+    links = getattr(n, "links", None)
+    if links is None or links.empty:
+        return out
+    bus_carrier = n.buses["carrier"]
+
+    for carrier, group in links.groupby(links["carrier"].astype(str)):
+        lowered = carrier.lower()
+        if not any(p in lowered for p in _P2H_PATTERNS):
+            continue
+        row = group.iloc[0]
+        if _is_heat_bus(bus_carrier.get(row.bus0)):
+            out[carrier] = 1.0  # reversed link: p_nom is already MW_th
+            continue
+        if not _is_heat_bus(bus_carrier.get(row.bus1)):
+            continue  # not an electricity -> heat link; leave alone
+        eff = pd.to_numeric(group["efficiency"], errors="coerce").dropna()
+        factor = float(eff.mean()) if len(eff) else 1.0
+        if not (0.0 < factor <= 1.0):
+            logger.warning(
+                "power-to-heat: implausible efficiency %.3f for %r; not scaling",
+                factor,
+                carrier,
+            )
+            continue
+        out[carrier] = factor
+
+    return out

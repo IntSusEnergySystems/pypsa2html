@@ -106,8 +106,20 @@ def _smart_capitalize(phrase: str) -> str:
     return phrase[0].upper() + phrase[1:]
 
 
+#: Panels whose capacity is not electrical.  ``power-to-heat`` is restated on
+#: the heat side by
+#: :func:`pypsa2html.extract.capacity_filter.heat_output_scaling` — heat-pump
+#: ``p_nom`` is already MW_th and resistive heaters are scaled by their
+#: efficiency — so that panel reads GW_th while every other one is GW_e.
+_PANEL_UNIT_NOTE = {"power-to-heat": "thermal"}
+
+
 def _panel_title(techs: list[str]) -> str:
-    return ", ".join(_smart_capitalize(t) for t in techs)
+    title = ", ".join(_smart_capitalize(t) for t in techs)
+    notes = sorted({_PANEL_UNIT_NOTE[t] for t in techs if t in _PANEL_UNIT_NOTE})
+    if notes:
+        title += f" ({', '.join(notes)})"
+    return title
 
 
 def _expand_capacity_group(group: list[str], index) -> list[str]:

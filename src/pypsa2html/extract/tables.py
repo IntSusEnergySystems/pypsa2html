@@ -16,7 +16,8 @@ import pandas as pd
 
 from ..charts.base import OMIT_GROUP, apply_tech_map, omit_carriers
 from ..context import BuildContext
-from .capacity_filter import capacity_keys_from_network
+from ..datafiles import load_taxonomy
+from .capacity_filter import capacity_keys_from_network, heat_output_scaling
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,18 @@ _DEMAND_CODES: dict[str, tuple[str, str]] = {
     "prespetcfneind": ("Non-energy", "naphtha for non-energy"),
     "preserail": ("electricity", "electricity demand for rail network"),
     "presvapcfdhs": ("heat", "Residential and tertiary DH demand"),
+    # The three residential/tertiary heat buses each emit their own code in
+    # carrier_flows_energy.csv: rural -> demandheat, urban decentral ->
+    # demandheatc, urban central -> presvapcfdhs (plotted as DH above).
+    # ``demandheatc`` was missing here until 2026-08-29, which silently dropped
+    # the *largest* block: 42.0 of 59.2 TWh of Flemish residential/tertiary heat
+    # in 2040 (71 %).  Because the dropped block shrinks while district heating
+    # grows, the chart showed Flemish heat demand *rising* 17.2 -> 21.6 TWh
+    # while the true total *fell* 59.2 -> 52.1 TWh.  See
+    # pypsa-wal docs/temporary_improvement_plans.md item 7.
     "demandheat": ("heat", "Residential and tertiary heat demand"),
+    "demandheatc": ("heat", "Residential and tertiary heat demand"),
+    # Emitted by other reference models, kept so their reports still resolve.
     "demandheata": ("heat", "Residential and tertiary heat demand"),
     "demandheatb": ("heat", "Residential and tertiary heat demand"),
     "demandheats": ("heat", "Residential and tertiary heat demand"),
@@ -467,6 +479,55 @@ def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
     return out
 
 
+def _p2h_scaling(ctx: BuildContext) -> dict[str, float]:
+    """Cached ``{carrier: factor}`` restating power-to-heat p_nom as MW_th."""
+    cache_key = "_p2h_heat_scaling"
+    cached = getattr(ctx, cache_key, None)
+    if cached is None:
+        try:
+            n = ctx.networks.first()
+        except Exception as exc:  # noqa: BLE001 - never break a build over this
+            logger.warning(
+                "power-to-heat scaling: cannot load a network (%s); capacities "
+                "will mix MW_th (heat pumps) with MW_e (resistive heaters)",
+                exc,
+            )
+            cached = {}
+        else:
+            cached = heat_output_scaling(n)
+            scaled = {k: v for k, v in cached.items() if v != 1.0}
+            if scaled:
+                logger.info(
+                    "power-to-heat: restating %d carrier(s) on the heat side %s",
+                    len(scaled),
+                    {k: round(v, 3) for k, v in scaled.items()},
+                )
+        setattr(ctx, cache_key, cached)
+    return cached
+
+
+def _apply_p2h_scaling(
+    df: pd.DataFrame, ctx: BuildContext, years: list[str]
+) -> pd.DataFrame:
+    """Put heat-pump and resistive-heater capacities on the same (heat) side.
+
+    Without this the ``power-to-heat`` panel adds MW_th to MW_e — see
+    :func:`pypsa2html.extract.capacity_filter.heat_output_scaling`.
+    """
+    factors = _p2h_scaling(ctx)
+    if not factors or df.empty or "carrier" not in df.columns:
+        return df
+    out = df.copy()
+    carriers = out["carrier"].astype(str)
+    for carrier, factor in factors.items():
+        if factor == 1.0:
+            continue
+        hit = carriers == carrier
+        if hit.any():
+            out.loc[hit, years] = out.loc[hit, years] * factor
+    return out
+
+
 def capacity_table(
     ctx: BuildContext, node: str, kind: CapacityKind = "power"
 ) -> pd.DataFrame | None:
@@ -533,6 +594,7 @@ def capacity_table(
         if df.empty or not years_in_csv:
             table = pd.DataFrame(columns=list(ctx.year_columns))
         else:
+            df = _apply_p2h_scaling(df, ctx, years_in_csv)
             table = _group_techs(df, years_in_csv, "capacities")
 
     table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
@@ -558,6 +620,48 @@ def capacity_table(
     return table.sort_index()
 
 
+def _warn_unmapped_demand_codes() -> None:
+    """Warn when ``carrier_flows_energy.csv`` emits a demand code we never plot.
+
+    The sectoral-demand chart is a *whitelist*: only codes in
+    :data:`_DEMAND_CODES` reach it, and a code that is emitted but not listed
+    disappears from the chart without any error.  That is how the whole
+    ``urban decentral heat`` block went missing.  Any row whose label says
+    "demand" is meant to be plotted, so flag the mismatch loudly.
+    """
+    try:
+        flows = load_taxonomy().carrier_flows_energy
+    except Exception as exc:  # noqa: BLE001 - never break a build over a check
+        logger.debug("demand-code check skipped: %s", exc)
+        return
+
+    labelled = flows.loc[
+        flows["label"].astype(str).str.contains("demand", case=False, na=False)
+    ]
+    # ``entry`` names ending in ``_2``/``_3`` are secondary *ports* of a link
+    # ("kerosene for aviation_2" -> "aviation oil demand to demand"). They carry
+    # the same energy as the primary row under a second code, so plotting them
+    # would double-count. The bug this guard exists for is a missing *bus*
+    # entry, which never has a port suffix. Heuristic, not a proof.
+    primary = labelled.loc[
+        ~labelled["entry"].astype(str).str.contains(r"_\d+$", regex=True, na=False)
+    ]
+    missing = sorted(
+        {
+            str(code)
+            for code in primary["code"]
+            if str(code) and str(code) not in _DEMAND_CODES
+        }
+    )
+    if missing:
+        logger.warning(
+            "carrier_flows_energy.csv emits demand code(s) %s that are absent "
+            "from _DEMAND_CODES; they will be missing from the sectoral-demand "
+            "chart. Add them to pypsa2html.extract.tables._DEMAND_CODES.",
+            missing,
+        )
+
+
 def demand_table(ctx: BuildContext, node: str) -> pd.DataFrame | None:
     """Sectoral final-energy demands. Index=sector label, columns=years.
 
@@ -565,6 +669,8 @@ def demand_table(ctx: BuildContext, node: str) -> pd.DataFrame | None:
     ``None`` when flows cannot be produced.
     """
     from .flows import energy_flows
+
+    _warn_unmapped_demand_codes()
 
     try:
         flows = energy_flows(ctx, node)
