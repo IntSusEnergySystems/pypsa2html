@@ -149,8 +149,10 @@ def self_sufficiency_balance(ctx, node: str, section) -> go.Figure | None:
         "Net imports": str(ctx.taxonomy.colors.get("imp", "#ffb07c")),
     }
     figures = []
+    mode = indicators.nuclear_primary_mode(ctx)
+    pe_label = f"Primary energy ({indicators.NUCLEAR_PRIMARY_LABELS[mode]})"
     for label, frame in (
-        ("Primary energy", detail.primary),
+        (pe_label, detail.primary),
         ("Electricity", detail.electricity),
     ):
         if frame is None or frame.empty:

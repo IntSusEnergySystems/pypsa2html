@@ -91,5 +91,9 @@ features:
   # |€/MWh| above which a bus price is treated as an empty-bus dual (SEPIA B3).
   # Prices are not plotted yet; extract.tables.sanitize_prices is the guard.
   price_abs_cap: 10000.0
+  # Primary-energy independence: "uranium" (default) counts the fuel as an
+  # import (not mined here, thermal losses included); "electricity" books the
+  # kWh the reactors produce as domestic. Electricity independence is unchanged.
+  nuclear_primary: uranium
 
 scenarios: []

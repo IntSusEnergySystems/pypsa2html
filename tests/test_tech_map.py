@@ -100,7 +100,38 @@ def test_tech_views_are_complete(tech_groups):
     assert set(tech_groups["view"]) <= TECH_VIEWS
 
 
-def test_capacity_omit_list_empty_by_default(tech_groups):
-    """Capacity filtering is topology-based; tech_groups __omit__ is optional."""
-    carriers = pd.Series(["biogas", "solar", "naphtha for industry"])
-    assert not omit_carriers(carriers, "capacities", tech_groups=tech_groups).any()
+def test_power_to_gas_splits_into_named_series(tech_groups):
+    """Item 14: Electrolysis / methanation / Fischer-Tropsch are separate groups."""
+    for view in ("costs", "capacities", "dispatch"):
+        assert apply_tech_map(pd.Series(["H2 Electrolysis"]), view, tech_groups=tech_groups).iloc[0] == "electrolysis"
+        assert apply_tech_map(pd.Series(["methanation"]), view, tech_groups=tech_groups).iloc[0] == "methanation"
+        assert apply_tech_map(pd.Series(["helmeth"]), view, tech_groups=tech_groups).iloc[0] == "methanation"
+        assert apply_tech_map(pd.Series(["Fischer-Tropsch"]), view, tech_groups=tech_groups).iloc[0] == "Fischer-Tropsch"
+        groups = set(tech_groups.loc[tech_groups["view"] == view, "group"])
+        assert "power-to-gas" not in groups
+
+
+def test_ccs_capacity_group_is_fuel_input_not_ccgt_cc(tech_groups):
+    """Item 15: industry/SMR CC join CCS; CCGT CC stays a power-panel sibling.
+
+    CHP CC is folded to ``CHP`` by ``normalize_carrier`` (any label containing
+    "CHP"); putting it on the CCS stack would mix CHP MW with industry fuel-input
+    MW — the mixed-unit bug items 5/7 already cost once.
+    """
+    mapped = apply_tech_map(
+        pd.Series(
+            [
+                "solid biomass for industry CC",
+                "gas for industry CC",
+                "process emissions CC",
+                "SMR CC",
+                "CCGT CC",
+                "urban central gas CHP CC",
+            ]
+        ),
+        "capacities",
+        tech_groups=tech_groups,
+    )
+    assert list(mapped.iloc[:4]) == ["CCS"] * 4
+    assert mapped.iloc[4] == "CCGT CC"
+    assert mapped.iloc[5] == "CHP"

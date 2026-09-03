@@ -253,6 +253,7 @@ def test_groups_are_loaded_from_yaml(tmp_path):
     assert cfg.nodes.groups[0].code == "BE"
     assert cfg.nodes.groups[0].members == ["BEVLG", "BEWAL", "BEBRU"]
     assert cfg.features.price_abs_cap == 1.0e4
+    assert cfg.features.nuclear_primary == "uranium"
 
 
 def test_group_prefix_key_rejected_in_config(tmp_path):

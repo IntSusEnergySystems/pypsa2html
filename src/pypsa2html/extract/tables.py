@@ -22,7 +22,18 @@ from .capacity_filter import capacity_keys_from_network, heat_output_scaling
 logger = logging.getLogger(__name__)
 
 CostKind = Literal["total", "capital", "marginal", "clustered"]
-CapacityKind = Literal["power", "storage"]
+CapacityKind = Literal["power", "storage", "ccs"]
+#: Capacities view of capture plant, rated on the fuel-input side (MW), not MW_e
+#: and not MtCO₂.  ``CCGT CC`` stays ungrouped so it remains a sibling of CCGT
+#: on the power panel.
+_CCS_CAPACITY_CARRIERS = frozenset(
+    {
+        "solid biomass for industry CC",
+        "gas for industry CC",
+        "process emissions CC",
+        "SMR CC",
+    }
+)
 
 #: Carriers dropped from nodal tables when transmission is attributed separately.
 _TRANSMISSION_CARRIERS = frozenset({"AC", "DC"})
@@ -269,6 +280,10 @@ def _apply_capacity_filter(
         if storage_carriers is None or "carrier" not in df.columns:
             return df
         return df.loc[df["carrier"].astype(str).isin(storage_carriers)]
+    if kind == "ccs":
+        if "carrier" not in df.columns:
+            return df
+        return df.loc[df["carrier"].astype(str).isin(_CCS_CAPACITY_CARRIERS)]
     if power_keys is None:
         return df
     if "carrier" not in df.columns:
@@ -557,6 +572,13 @@ def capacity_table(
         else:
             logger.warning("capacity_table: no component column for storage filter")
             return None
+    elif kind == "ccs":
+        if df.empty:
+            return None
+        if "component" in df.columns:
+            df = df.loc[df["component"].astype(str) == "Link"]
+        if "carrier" in df.columns:
+            df = df.loc[df["carrier"].astype(str).isin(_CCS_CAPACITY_CARRIERS)]
     elif kind == "power":
         # Keep AC/DC so ``normalize_carrier`` folds them into
         # "transmission lines" for the faceted capacity chart.  Cost tables

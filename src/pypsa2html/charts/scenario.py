@@ -372,9 +372,15 @@ def storage_capacities(ctx, node: str, section) -> go.Figure | None:
 
 
 def cc_capacities(ctx, node: str, section) -> go.Figure | None:
-    """Carbon-capture capacity comparison — not yet ported."""
-    logger.debug("section %s: cc_capacities not implemented", section.id)
-    return None
+    """Capture plant comparison — fuel-input GW, not MtCO₂/year."""
+    return _table_comparison(
+        ctx,
+        node,
+        section,
+        table_fn=lambda sctx, n: capacity_table(sctx, n, "ccs"),
+        signed=False,
+        scale=_CAPACITY_SCALE,
+    )
 
 
 def energy_independence(ctx, node: str, section) -> go.Figure | None:
@@ -409,7 +415,11 @@ def energy_independence(ctx, node: str, section) -> go.Figure | None:
         if not series:
             continue
         frame = pd.DataFrame(series)
-        add_chart_data(ctx, node, f"{section.title} - {label}", section.unit, frame.T)
+        panel = label
+        if kind == "primary":
+            mode = indicators.nuclear_primary_mode(ctx)
+            panel = f"{label} ({indicators.NUCLEAR_PRIMARY_LABELS[mode]})"
+        add_chart_data(ctx, node, f"{section.title} - {panel}", section.unit, frame.T)
         fig = _scenario_line_chart(frame, unit=section.unit)
         if fig is not None:
             fig.add_hline(
@@ -419,7 +429,7 @@ def energy_independence(ctx, node: str, section) -> go.Figure | None:
                 annotation_text="self-sufficient",
                 annotation_position="top left",
             )
-        figures.append((label, fig))
+        figures.append((panel, fig))
 
     if not figures:
         logger.warning("section %s: nothing to plot for node %s", section.id, node)

@@ -1,10 +1,10 @@
 pattern,view,group,order
 heat pump,costs,power-to-heat,0
 resistive heater,costs,power-to-heat,1
-^H2 Electrolysis$,costs,power-to-gas,2
-^methanation$,costs,power-to-gas,3
-^helmeth$,costs,power-to-gas,4
-^H2 liquefaction$,costs,power-to-gas,5
+^H2 Electrolysis$,costs,electrolysis,2
+^methanation$,costs,methanation,3
+^helmeth$,costs,methanation,4
+^H2 liquefaction$,costs,H2 liquefaction,5
 ^electricity distribution grid$,costs,distribution network,6
 ^CHP$,costs,CHP,7
 ^H2 Fuel Cell$,costs,CHP,8
@@ -19,7 +19,7 @@ resistive heater,costs,power-to-heat,1
 ^oil boiler$,costs,boilers,17
 ^gas boiler$,costs,boilers,18
 solar,costs,solar,19
-^Fischer-Tropsch$,costs,power-to-liquid,20
+^Fischer-Tropsch$,costs,Fischer-Tropsch,20
 offshore wind,costs,offshore wind,21
 ^co2 sequestered$,costs,CCUS,22
 ^CO2 sequestration$,costs,CCUS,23
@@ -95,16 +95,20 @@ load,costs,load shedding,68
 ^H2 pipeline retrofitted$,costs,H2 & gas pipelines,93
 heat pump,capacities,power-to-heat,0
 resistive heater,capacities,power-to-heat,1
-^H2 Electrolysis$,capacities,power-to-gas,2
-^methanation$,capacities,power-to-gas,3
-^helmeth$,capacities,power-to-gas,4
-^H2 liquefaction$,capacities,power-to-gas,5
+^H2 Electrolysis$,capacities,electrolysis,2
+^methanation$,capacities,methanation,3
+^helmeth$,capacities,methanation,4
+^H2 liquefaction$,capacities,H2 liquefaction,5
+^solid biomass for industry CC$,capacities,CCS,22
+^gas for industry CC$,capacities,CCS,23
+^process emissions CC$,capacities,CCS,24
+^SMR CC$,capacities,CCS,25
 ^electricity distribution grid$,capacities,distribution network,6
 ^CHP$,capacities,CHP,7
 ^H2 Fuel Cell$,capacities,CHP,8
 ^H2 turbine$,capacities,CHP,9
 solar,capacities,solar,10
-^Fischer-Tropsch$,capacities,power-to-liquid,11
+^Fischer-Tropsch$,capacities,Fischer-Tropsch,11
 offshore wind,capacities,offshore wind,12
 ^hot water storage$,capacities,thermal energy storage,13
 ^water pits$,capacities,thermal energy storage,14
@@ -115,12 +119,12 @@ offshore wind,capacities,offshore wind,12
 ^gas pipeline$,capacities,H2 & gas pipelines,19
 ^gas pipeline new$,capacities,H2 & gas pipelines,20
 ^H2 pipeline retrofitted$,capacities,H2 & gas pipelines,21
-^H2 Electrolysis$,dispatch,power-to-gas,0
-^methanation$,dispatch,power-to-gas,1
-^methanolisation$,dispatch,power-to-gas,2
-^helmeth$,dispatch,power-to-gas,3
-^H2 liquefaction$,dispatch,power-to-gas,4
-^Haber-Bosch$,dispatch,power-to-gas,5
+^H2 Electrolysis$,dispatch,electrolysis,0
+^methanation$,dispatch,methanation,1
+^helmeth$,dispatch,methanation,2
+^methanolisation$,dispatch,methanolisation,3
+^H2 liquefaction$,dispatch,H2 liquefaction,4
+^Haber-Bosch$,dispatch,Haber-Bosch,5
 H2 pipeline,dispatch,H2 pipeline,6
 ^H2 Store$,dispatch,hydrogen storage,7
 ^H2 storage$,dispatch,hydrogen storage,8
@@ -129,7 +133,7 @@ H2 pipeline,dispatch,H2 pipeline,6
 ^battery charger$,dispatch,battery storage,11
 ^battery discharger$,dispatch,battery storage,12
 solar,dispatch,solar,13
-^Fischer-Tropsch$,dispatch,power-to-liquid,14
+^Fischer-Tropsch$,dispatch,Fischer-Tropsch,14
 offshore wind,dispatch,offshore wind,15
 ^CO2 sequestration$,dispatch,CCS,16
 ^co2$,dispatch,CCS,17
@@ -147,10 +151,10 @@ load,dispatch,load shedding,27
 ^lignite$,dispatch,coal,29
 heat pump,map,power-to-heat,0
 resistive heater,map,power-to-heat,1
-^H2 Electrolysis$,map,power-to-gas,2
-^methanation$,map,power-to-gas,3
-^helmeth$,map,power-to-gas,4
-^H2 liquefaction$,map,power-to-gas,5
+^H2 Electrolysis$,map,electrolysis,2
+^methanation$,map,methanation,3
+^helmeth$,map,methanation,4
+^H2 liquefaction$,map,H2 liquefaction,5
 ^electricity distribution grid$,map,distribution network,6
 ^CHP$,map,CHP,7
 ^H2 Fuel Cell$,map,CHP,8
@@ -165,7 +169,7 @@ resistive heater,map,power-to-heat,1
 ^oil boiler$,map,boilers,17
 ^gas boiler$,map,boilers,18
 solar,map,solar,19
-^Fischer-Tropsch$,map,power-to-liquid,20
+^Fischer-Tropsch$,map,Fischer-Tropsch,20
 offshore wind,map,offshore wind,21
 ^co2 sequestered$,map,CCUS,22
 ^CO2 sequestration$,map,CCUS,23
@@ -240,9 +244,10 @@ load,map,load shedding,68
 ^gas pipeline new$,map,H2 & gas pipelines,92
 ^H2 pipeline retrofitted$,map,H2 & gas pipelines,93
 ^synthetic fuels & techs$,clustered,Uses,0
-^power-to-liquid$,clustered,Uses,1
+^Fischer-Tropsch$,clustered,Uses,1
 ^power-to-heat$,clustered,Uses,2
-^power-to-gas$,clustered,Uses,3
+^electrolysis$,clustered,Uses,3
+^methanation$,clustered,Uses,3
 ^CCU$,clustered,Uses,4
 ^CCUS$,clustered,Uses,5
 ^DAC$,clustered,Uses,6

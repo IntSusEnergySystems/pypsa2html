@@ -166,6 +166,15 @@ SELF_SUFFICIENCY_KINDS: tuple[tuple[str, str], ...] = (
     ("electricity", "ss_elc"),
 )
 
+#: ``features.nuclear_primary`` values. Default ``uranium`` keeps fuel as an
+#: import; ``electricity`` books reactor kWh as domestic primary energy.
+NUCLEAR_PRIMARY_URANIUM = "uranium"
+NUCLEAR_PRIMARY_ELECTRICITY = "electricity"
+NUCLEAR_PRIMARY_LABELS = {
+    NUCLEAR_PRIMARY_URANIUM: "nuclear as imported uranium",
+    NUCLEAR_PRIMARY_ELECTRICITY: "nuclear as domestic electricity",
+}
+
 #: GHG nodes that represent a *removal*; their bar is drawn below the axis.
 GHG_REMOVALS: tuple[str, ...] = (
     "lufnes_ghg",
@@ -388,6 +397,27 @@ def _endpoint_sum(frame: pd.DataFrame, level: str, code: str) -> pd.Series:
     if not mask.any():
         return _zeros(frame.index)
     return frame.loc[:, mask].sum(axis=1).astype(float)
+
+
+def nuclear_primary_mode(ctx) -> str:
+    """How nuclear counts in primary-energy independence.
+
+    Default ``uranium``: fuel is an import (not mined here). ``electricity``:
+    kWh generated inside the node count as domestic. Invalid values raise.
+    """
+    features = getattr(ctx.config, "features", None)
+    raw = getattr(features, "nuclear_primary", None)
+    if raw is None:
+        raw = (getattr(ctx.config, "raw", {}) or {}).get("features", {}).get(
+            "nuclear_primary"
+        )
+    mode = str(raw or NUCLEAR_PRIMARY_URANIUM).strip().lower()
+    if mode not in NUCLEAR_PRIMARY_LABELS:
+        raise ValueError(
+            "features.nuclear_primary must be 'uranium' or 'electricity', "
+            f"got {raw!r}"
+        )
+    return mode
 
 
 def graph_imbalances(
@@ -1197,17 +1227,25 @@ class Indicators:
         """Primary-energy and electricity self-sufficiency (see D18).
 
         Primary energy uses every ``prod`` / ``imp`` / ``exp`` edge on the
-        closed energy graph, so uranium is an import (fuel is not mined here)
-        and wind/solar/hydro/biomass are domestic.  Electricity uses the
-        ``elc_se`` balance: nuclear kWh generated inside the node count as
-        domestic even though the fuel is imported.  Internal trade of a group
-        cancels because it is already netted in the residual.
+        closed energy graph. With the default ``features.nuclear_primary:
+        uranium``, uranium is an import (fuel is not mined here) and
+        wind/solar/hydro/biomass are domestic. ``electricity`` instead books
+        reactor kWh as domestic primary energy and drops the uranium import
+        (thermal losses leave the ratio). Electricity self-sufficiency always
+        uses the ``elc_se`` balance: nuclear kWh generated inside the node
+        count as domestic even though the fuel is imported. Internal trade of
+        a group cancels because it is already netted in the residual.
         """
         years = self.flows.index
         domestic_pe = _endpoint_sum(self.flows, "Source", "prod")
         net_pe = _endpoint_sum(self.flows, "Source", "imp") - _endpoint_sum(
             self.flows, "Target", "exp"
         )
+        if nuclear_primary_mode(self.ctx) == NUCLEAR_PRIMARY_ELECTRICITY:
+            nuc_elc = column(self.flows, ("ura_pe", "elc_se", "thm"))
+            ura_imp = column(self.flows, ("imp", "ura_pe", ""))
+            domestic_pe = domestic_pe + nuc_elc
+            net_pe = net_pe - ura_imp
 
         elc_in = node_flows(self.flows, "elc_se", direction="in", split="source")
         elc_out = node_flows(self.flows, "elc_se", direction="out", split="target")

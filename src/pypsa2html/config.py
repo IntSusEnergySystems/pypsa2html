@@ -166,9 +166,20 @@ class FeaturesConfig:
     #: Drop |bus price| above this cap (€/MWh) if prices are ever plotted.
     #: Empty-bus duals in PyPSA routinely hit 1e5–1e6 €/MWh.
     price_abs_cap: float = 1.0e4
+    #: How nuclear counts in *primary-energy* independence (electricity
+    #: independence always books reactor kWh as domestic). ``uranium`` (default)
+    #: treats the fuel as an import; ``electricity`` books the kWh produced.
+    nuclear_primary: str = "uranium"
 
     def __post_init__(self):
         self.price_abs_cap = float(self.price_abs_cap)
+        mode = str(self.nuclear_primary or "uranium").strip().lower()
+        if mode not in {"uranium", "electricity"}:
+            raise ValueError(
+                "features.nuclear_primary must be 'uranium' or 'electricity', "
+                f"got {self.nuclear_primary!r}"
+            )
+        self.nuclear_primary = mode
 
 
 @dataclass

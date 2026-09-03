@@ -225,6 +225,44 @@ def test_self_sufficiency_from_negawatt_flows(
     assert (eu_ss["primary"] < 100).all()
 
 
+def test_nuclear_primary_electricity_books_kwh_as_domestic(
+    indicator_ctx, energy_flows_be, carbon_flows_be
+):
+    """Item 6b: uranium-as-import vs electricity-produced, no offshore share."""
+    fuel = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
+    ctx = deepcopy(indicator_ctx)
+    ctx.config = type(
+        "Config",
+        (),
+        {
+            "project": indicator_ctx.config.project,
+            "model": indicator_ctx.config.model,
+            "output": indicator_ctx.config.output,
+            "raw": {},
+            "features": type("Features", (), {"nuclear_primary": "electricity"})(),
+        },
+    )()
+    elec = _build(ctx, "BE", energy_flows_be, carbon_flows_be)
+    pd.testing.assert_series_equal(
+        fuel.self_sufficiency.ratio["electricity"],
+        elec.self_sufficiency.ratio["electricity"],
+    )
+    delta = elec.self_sufficiency.ratio["primary"] - fuel.self_sufficiency.ratio["primary"]
+    assert (delta.fillna(0) >= -1e-9).all()
+    assert (delta.fillna(0) > 0).any()
+
+
+def test_nuclear_primary_rejects_unknown_mode(indicator_ctx):
+    ctx = deepcopy(indicator_ctx)
+    ctx.config = type(
+        "Config",
+        (),
+        {"features": type("Features", (), {"nuclear_primary": "offshore"})(), "raw": {}},
+    )()
+    with pytest.raises(ValueError, match="nuclear_primary"):
+        indicators.nuclear_primary_mode(ctx)
+
+
 def test_self_sufficiency_members_matches_node(indicator_ctx, energy_flows_be, carbon_flows_be):
     result = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
     indicator_ctx._files[("indicators", "BE")] = result

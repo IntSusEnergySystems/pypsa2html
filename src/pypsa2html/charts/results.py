@@ -43,7 +43,9 @@ _POWER_GROUPS: list[list[str]] = [
     ["solar"],
     ["onshore wind", "offshore wind"],
     ["power-to-heat"],
-    ["power-to-gas"],
+    ["electrolysis"],
+    ["methanation"],
+    ["Fischer-Tropsch"],
     ["transmission lines"],
     ["nuclear"],
     ["CCGT"],
@@ -55,9 +57,10 @@ _POWER_GROUPS_AGGREGATE: list[list[str]] = [
     ["solar"],
     ["onshore wind", "offshore wind"],
     ["power-to-heat"],
-    ["power-to-gas"],
+    ["electrolysis"],
+    ["methanation"],
     ["transmission lines"],
-    ["power-to-liquid"],
+    ["Fischer-Tropsch"],
     ["CCGT"],
     ["nuclear"],
 ]
@@ -252,6 +255,14 @@ def storage_capacities(ctx, node: str, section) -> go.Figure | None:
     """Stacked bar of all storage capacities."""
     return _bar(
         ctx, node, section, capacity_table(ctx, node, "storage"),
+        signed=False, scale=_CAPACITY_SCALE,
+    )
+
+
+def ccs_capacities(ctx, node: str, section) -> go.Figure | None:
+    """Installed capture plant, rated on the fuel-input side (not MW_e, not Mt)."""
+    return _bar(
+        ctx, node, section, capacity_table(ctx, node, "ccs"),
         signed=False, scale=_CAPACITY_SCALE,
     )
 

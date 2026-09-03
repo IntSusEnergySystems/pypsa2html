@@ -28,7 +28,7 @@ pages:
       - {id: scenario_operational,   title: Annual operational costs,        builder: scenario.operational_costs,    unit: EUR/year}
       - {id: scenario_capacities,    title: Capacities,                      builder: scenario.capacities,           unit: GW}
       - {id: scenario_storage,       title: Storage capacities,              builder: scenario.storage_capacities,   unit: GWh}
-      - {id: scenario_cc,            title: Carbon capture capacities,       builder: scenario.cc_capacities,        unit: MtCO2/year, enabled: false}
+      - {id: scenario_cc,            title: CCS capacities (fuel input),     builder: scenario.cc_capacities,        unit: GW}
       - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%'}
 
   - id: emissions
@@ -77,6 +77,7 @@ pages:
       - {id: power_capacities_by_tech,   title: Capacities by technology,           builder: results.capacities_by_tech,         unit: GW}
       - {id: storage_capacities,         title: Storage capacities,                 builder: results.storage_capacities,        unit: GWh}
       - {id: storage_capacities_by_tech, title: Storage capacities by technology,   builder: results.storage_capacities_by_tech, unit: GWh}
+      - {id: ccs_capacities,             title: CCS capacities (fuel input),        builder: results.ccs_capacities,            unit: GW}
 
   - id: dispatch
     title: Dispatch

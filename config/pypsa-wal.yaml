@@ -1,7 +1,7 @@
 # PyPSA-Wal -- Walloon regional model (repo: pypsa-wal).
 #
 #     pypsa2html build --config /path/to/pypsa2html/config/pypsa-wal.yaml
-root: /home/sylvain/svn/pypsa-wal
+root: /sylvain/git/pypsa-wal
 
 project:
   name: PyPSA-Wal
@@ -39,8 +39,8 @@ nodes:
 scenarios:
   - name: scen_demande_haute
     label: High demand
-    results_dir: results/times-pypsa/scen_demande_haute
-    resources_dir: resources/times-pypsa/scen_demande_haute
+    results_dir: results/walloon/scen_demande_haute
+    resources_dir: resources/walloon/scen_demande_haute
   - name: scen_corrige
     label: Corrected
     results_dir: results/times-pypsa/scen_corrige
@@ -58,7 +58,7 @@ landing:
 output:
   # {scenario} puts each scenario's pages beside that scenario's own csvs/,
   # graphs/ and networks/, so the whole results tree uploads to S3 as one unit.
-  dir: results/times-pypsa/{scenario}/html
+  dir: results/walloon/{scenario}/html
   pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true
   plotly: cdn
