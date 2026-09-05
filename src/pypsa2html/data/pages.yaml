@@ -78,6 +78,13 @@ pages:
       - {id: storage_capacities,         title: Storage capacities,                 builder: results.storage_capacities,        unit: GWh}
       - {id: storage_capacities_by_tech, title: Storage capacities by technology,   builder: results.storage_capacities_by_tech, unit: GWh}
       - {id: ccs_capacities,             title: CCS capacities (fuel input),        builder: results.ccs_capacities,            unit: GW}
+      # Utilisation of the fleet plotted above: energy through the port
+      # p_nom is rated at, over p_nom_opt x the hours of the year.  Storage
+      # is the same ratio against e_nom_opt, which makes it a cycle count.
+      - {id: capacity_factors,           title: Capacity factors,                   builder: results.capacity_factors,           unit: "%"}
+      - {id: capacity_factors_by_tech,   title: Capacity factors by technology,     builder: results.capacity_factors_by_tech,   unit: "%"}
+      - {id: storage_cycles,             title: Storage cycles,                     builder: results.storage_cycles,             unit: cycles/year}
+      - {id: storage_cycles_by_tech,     title: Storage cycles by technology,       builder: results.storage_cycles_by_tech,     unit: cycles/year}
 
   - id: dispatch
     title: Dispatch

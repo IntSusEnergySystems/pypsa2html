@@ -560,6 +560,70 @@ def stacked_bar(
     return fig
 
 
+#: Sequential shades used for one-trace-per-horizon charts, oldest first.
+#: Ratio charts put technologies on the x axis and horizons in the legend, so
+#: the tech palette is unusable — the colour has to encode the *year*.
+_HORIZON_COLORS = (
+    "#c6dbef",
+    "#6baed6",
+    "#2171b5",
+    "#08306b",
+    "#993404",
+    "#d95f0e",
+)
+
+
+def grouped_bar(
+    df: pd.DataFrame,
+    unit: str,
+    title: str = "",
+    *,
+    scale: float = 1.0,
+    hover_fmt: str = "%{y:.3g}",
+) -> go.Figure | None:
+    """Side-by-side bars of a tech × year table, technologies on the x axis.
+
+    For **ratios** — capacity factors, storage cycles — where the stacked bar
+    used by :func:`stacked_bar` would be nonsense: the sum of two utilisation
+    factors means nothing.  Technologies go on the x axis and each horizon is
+    its own trace, so the evolution of one technology is read left-to-right
+    within its own cluster.
+
+    ``NaN`` is kept as a gap (no bar), which is how "no capacity installed, so
+    no factor to report" must render — a zero bar would read as an idle fleet.
+    """
+    if df is None or df.empty or not len(df.columns):
+        return None
+    data = df.astype(float) * scale
+    data = data.loc[data.notna().any(axis=1)]
+    if data.empty:
+        return None
+    techs = [str(i) for i in data.index]
+    years = [str(c) for c in data.columns]
+    fig = go.Figure()
+    for position, year in enumerate(years):
+        fig.add_trace(
+            go.Bar(
+                x=techs,
+                y=data[data.columns[position]].values,
+                name=year,
+                marker_color=_HORIZON_COLORS[position % len(_HORIZON_COLORS)],
+                hovertemplate=hover_fmt,
+            )
+        )
+    fig.update_layout(
+        title=title or None,
+        barmode="group",
+        height=CHART_HEIGHT,
+        hovermode="x unified",
+        yaxis_title=strip_markup(unit),
+        font={"size": FONT_SIZE},
+        legend_title_text="",
+        margin={"l": 60, "r": 30, "t": 60 if title else 30, "b": 140},
+        xaxis={"tickangle": -45, "title": "", "tickfont": {"size": 13}},
+    )
+    return fig
+
 # ---------------------------------------------------------------------------
 # Combining variants
 # ---------------------------------------------------------------------------

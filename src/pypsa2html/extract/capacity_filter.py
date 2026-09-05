@@ -210,3 +210,97 @@ def heat_output_scaling(n: Any) -> dict[str, float]:
         out[carrier] = factor
 
     return out
+
+
+#: Bus carriers that *are* electricity.  ``low voltage`` is the distribution
+#: side of the same commodity, so a link delivering there is still a generator.
+_ELECTRIC_BUSES = frozenset({"AC", "low voltage"})
+
+
+def _is_electric_bus(bus_carrier: Any) -> bool:
+    if bus_carrier is None or (isinstance(bus_carrier, float) and pd.isna(bus_carrier)):
+        return False
+    return str(bus_carrier) in _ELECTRIC_BUSES
+
+
+def electric_output_scaling(
+    n: Any, *, exclude: Any = ()
+) -> dict[str, float]:
+    """Factors that put an electricity-producing Link's ``p_nom`` in **MW_e**.
+
+    PyPSA rates a Link's ``p_nom`` at ``bus0``, and for a thermal power plant
+    ``bus0`` is the *fuel* bus: a CCGT's ``p_nom`` is MW of gas, a CHP's is MW
+    of gas or biomass, a nuclear plant's is MW of uranium heat.  PyPSA-Eur
+    stores it that way on purpose (it multiplies the per-MW_e ``capital_cost``
+    by the efficiency to match), and the vintages prove it — the brownfield
+    values divide cleanly by the efficiency into round plate ratings
+    (``447.368 = 255 / 0.57``).
+
+    Plotted raw, a CCGT bar is 1.75x its electrical rating and cannot be
+    compared with the nuclear bar beside it (which
+    :func:`~pypsa2html.extract.tables._nuclear_electric_mw` already restates)
+    nor with a wind bar (a Generator, always MW_e).  This returns
+    ``{carrier: efficiency}`` so the caller can put them all on the electrical
+    side, which is how a power plant is universally rated.
+
+    A carrier qualifies when ``bus0`` is **not** electricity and ``bus1`` —
+    the port ``efficiency`` describes — **is**.  Using ``bus1`` only is what
+    keeps the rule safe: a CHP's heat port is ``bus2`` with its own
+    ``efficiency2``, and DAC or Haber-Bosch draw electricity at ``bus0`` or a
+    later port, so neither is touched.
+
+    ``exclude`` carriers are skipped whatever their topology.  Power-to-heat is
+    passed in that way, because a **heat pump is a reversed link** — ``bus0``
+    is the heat bus and ``bus1`` the electricity bus — so it matches the rule
+    by accident while its ``p_nom`` is already MW_th and belongs to
+    :func:`heat_output_scaling` instead.
+    """
+    out: dict[str, float] = {}
+    links = getattr(n, "links", None)
+    if links is None or links.empty:
+        return out
+    bus_carrier = n.buses["carrier"]
+
+    excluded = set(exclude)
+    for carrier, group in links.groupby(links["carrier"].astype(str)):
+        if carrier in excluded:
+            continue  # power-to-heat: heat_output_scaling owns these
+        row = group.iloc[0]
+        if _is_electric_bus(bus_carrier.get(row.bus0)):
+            continue  # already rated on the electricity side
+        if not _is_electric_bus(bus_carrier.get(row.bus1)):
+            continue  # does not deliver electricity at its primary port
+        factor = _fleet_efficiency(group)
+        if factor is None:
+            continue
+        if not (0.0 < factor <= 1.0):
+            logger.warning(
+                "electric rating: implausible efficiency %.3f for %r; not scaling",
+                factor,
+                carrier,
+            )
+            continue
+        out[carrier] = factor
+
+    return out
+
+
+def _fleet_efficiency(group: pd.DataFrame) -> float | None:
+    """Capacity-weighted mean electric efficiency of one carrier's Links.
+
+    A carrier holds several vintages with different efficiencies (a 1995 CCGT
+    beside a new-build one), and the factor multiplies the *summed* ``p_nom``
+    of the whole group.  Weighting by capacity makes that product exact for
+    the aggregate; an unweighted mean would let a tiny inefficient vintage
+    drag the whole bar down.  Falls back to the plain mean when no capacity is
+    installed, so the factor is still defined for an empty horizon.
+    """
+    eff = pd.to_numeric(group["efficiency"], errors="coerce")
+    cap_col = "p_nom_opt" if "p_nom_opt" in group.columns else "p_nom"
+    cap = pd.to_numeric(group.get(cap_col), errors="coerce")
+    if cap is not None:
+        valid = eff.notna() & cap.notna() & (cap > 0)
+        if valid.any():
+            return float((eff[valid] * cap[valid]).sum() / cap[valid].sum())
+    eff = eff.dropna()
+    return float(eff.mean()) if len(eff) else None

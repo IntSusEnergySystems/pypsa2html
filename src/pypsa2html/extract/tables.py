@@ -17,7 +17,11 @@ import pandas as pd
 from ..charts.base import OMIT_GROUP, apply_tech_map, omit_carriers
 from ..context import BuildContext
 from ..datafiles import load_taxonomy
-from .capacity_filter import capacity_keys_from_network, heat_output_scaling
+from .capacity_filter import (
+    capacity_keys_from_network,
+    electric_output_scaling,
+    heat_output_scaling,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -521,25 +525,91 @@ def _p2h_scaling(ctx: BuildContext) -> dict[str, float]:
     return cached
 
 
-def _apply_p2h_scaling(
+def _capacity_rescaling(ctx: BuildContext) -> dict[str, dict[str, float]]:
+    """``{year: {carrier: factor}}`` restating Link p_nom, per horizon.
+
+    Both maps put a Link on the side of the service it delivers — electricity
+    for power plants, heat for power-to-heat — so one bar can be compared with
+    the next.  They are disjoint by construction
+    (:func:`~pypsa2html.extract.capacity_filter.electric_output_scaling` is
+    given the power-to-heat carriers as its ``exclude`` set) and power-to-heat
+    wins if that ever changes, because a heat pump's ``p_nom`` is already MW_th
+    and that is the rating wanted for it.
+
+    Factors are read **per horizon**: a carrier's fleet efficiency moves as new
+    vintages arrive (CCGT 0.570 in 2025 -> 0.588 in 2050), and reusing the
+    first horizon's value would misstate the last one by ~3 %.  Year columns
+    with no horizon of their own (an exogenous ``base_year``) fall back to the
+    earliest map.
+    """
+    cache_key = "_capacity_rescaling_by_year"
+    cached = getattr(ctx, cache_key, None)
+    if cached is not None:
+        return cached
+
+    p2h = _p2h_scaling(ctx)
+    by_year: dict[str, dict[str, float]] = {}
+    for horizon in getattr(ctx, "horizons", []):
+        try:
+            n = ctx.networks[horizon]
+        except Exception as exc:  # noqa: BLE001 - never break a build over this
+            logger.warning(
+                "electric rating: no network for horizon %s (%s); thermal "
+                "plants stay on their fuel side (MW_th) in that column",
+                horizon,
+                exc,
+            )
+            continue
+        by_year[str(horizon)] = {**electric_output_scaling(n, exclude=p2h), **p2h}
+
+    if by_year:
+        first = by_year[min(by_year)]
+        electric = {k: v for k, v in first.items() if k not in p2h}
+        logger.info(
+            "electric rating: restating %d Link carrier(s) as MW_e %s",
+            len(electric),
+            {k: round(v, 3) for k, v in sorted(electric.items())},
+        )
+    else:
+        logger.warning(
+            "electric rating: no network available; thermal power plants will "
+            "be plotted on their fuel side (MW_th)"
+        )
+    setattr(ctx, cache_key, by_year)
+    return by_year
+
+
+def _apply_capacity_rescaling(
     df: pd.DataFrame, ctx: BuildContext, years: list[str]
 ) -> pd.DataFrame:
-    """Put heat-pump and resistive-heater capacities on the same (heat) side.
+    """Restate Link ``p_nom`` on the side of the service the Link delivers.
 
-    Without this the ``power-to-heat`` panel adds MW_th to MW_e — see
-    :func:`pypsa2html.extract.capacity_filter.heat_output_scaling`.
+    Two corrections, both needed before capacities from different Links can
+    share an axis:
+
+    * **power plants -> MW_e.** PyPSA rates ``p_nom`` at ``bus0``, which for a
+      CCGT, a CHP or a nuclear plant is the *fuel* bus, so the raw value is
+      MW_th — a CCGT bar 1.75x its plate rating, incomparable with the wind
+      Generator beside it.  See
+      :func:`pypsa2html.extract.capacity_filter.electric_output_scaling`.
+    * **power-to-heat -> MW_th.** Heat pumps are already thermal; resistive
+      heaters are not.  See
+      :func:`pypsa2html.extract.capacity_filter.heat_output_scaling`.
     """
-    factors = _p2h_scaling(ctx)
-    if not factors or df.empty or "carrier" not in df.columns:
+    by_year = _capacity_rescaling(ctx)
+    if not by_year or df.empty or "carrier" not in df.columns:
         return df
+    fallback = by_year[min(by_year)]
     out = df.copy()
     carriers = out["carrier"].astype(str)
-    for carrier, factor in factors.items():
-        if factor == 1.0:
-            continue
-        hit = carriers == carrier
-        if hit.any():
-            out.loc[hit, years] = out.loc[hit, years] * factor
+    for year in years:
+        factors = by_year.get(str(year), fallback)
+        for carrier, factor in factors.items():
+            if factor == 1.0:
+                continue
+            hit = carriers == carrier
+            if hit.any():
+                out.loc[hit, year] = out.loc[hit, year] * factor
     return out
 
 
@@ -616,7 +686,7 @@ def capacity_table(
         if df.empty or not years_in_csv:
             table = pd.DataFrame(columns=list(ctx.year_columns))
         else:
-            df = _apply_p2h_scaling(df, ctx, years_in_csv)
+            df = _apply_capacity_rescaling(df, ctx, years_in_csv)
             table = _group_techs(df, years_in_csv, "capacities")
 
     table = table.reindex(columns=list(ctx.year_columns), fill_value=0.0)
@@ -641,6 +711,216 @@ def capacity_table(
 
     return table.sort_index()
 
+
+# ---------------------------------------------------------------------------
+# Utilisation (capacity factors / storage cycles)
+# ---------------------------------------------------------------------------
+
+UtilisationKind = Literal["power", "storage"]
+
+#: How a throughput is read per component: ``(static attr, capacity attr,
+#: time-series attr, port, sign rule)``.
+#:
+#: ``Link`` reads **p0** — the port PyPSA rates ``p_nom`` at, whichever side of
+#: the link that happens to be (``bus0`` is gas for a CCGT, electricity for an
+#: electrolyser and *heat* for a heat pump, which is a reversed link).  Taking
+#: numerator and denominator on the same port is what makes the factor mean the
+#: same thing for all of them, and it also makes the heat-side rescaling of
+#: :func:`~pypsa2html.extract.capacity_filter.heat_output_scaling` irrelevant
+#: here: the factor would appear in both terms and cancel.
+#:
+#: ``abs`` is for branches, which can flow either way; ``positive`` is for
+#: components whose negative half is a *different* operating mode that must not
+#: be added to the dispatch (a charging StorageUnit or Store).
+_UTILISATION_PORTS: dict[str, tuple[str, str, str, str, str]] = {
+    "Generator": ("generators", "p_nom_opt", "generators_t", "p", "positive"),
+    "Link": ("links", "p_nom_opt", "links_t", "p0", "abs"),
+    "StorageUnit": ("storage_units", "p_nom_opt", "storage_units_t", "p", "positive"),
+    "Line": ("lines", "s_nom_opt", "lines_t", "p0", "abs"),
+}
+
+#: Same, for the storage view: energy *leaving* the store over ``e_nom_opt``.
+_UTILISATION_STORE = ("stores", "e_nom_opt", "stores_t", "p", "positive")
+
+
+def _snapshot_weights(n, component: str) -> pd.Series:
+    """Hours represented by each snapshot, for ``component``'s energy sum.
+
+    A 6h-resolution run carries weight 6, so summing raw MW would understate
+    the energy by the resolution — and the capacity factor with it.
+    """
+    snapshots = pd.Index(n.snapshots)
+    weightings = getattr(n, "snapshot_weightings", None)
+    if weightings is None or getattr(weightings, "empty", True):
+        return pd.Series(1.0, index=snapshots)
+    preferred = ("stores",) if component == "Store" else ("generators", "objective")
+    for column in (*preferred, "objective", "generators"):
+        if column in weightings.columns:
+            values = pd.to_numeric(weightings[column], errors="coerce")
+            return values.reindex(snapshots).fillna(1.0)
+    return pd.Series(1.0, index=snapshots)
+
+
+def _throughput(n, spec: tuple[str, str, str, str, str], index: pd.Index,
+                weights: pd.Series) -> pd.Series:
+    """Energy [MWh] through ``spec``'s rated port, per component name."""
+    _static_attr, _cap_attr, ts_attr, port, sign = spec
+    frame = getattr(getattr(n, ts_attr, None), port, None)
+    if frame is None or getattr(frame, "empty", True):
+        return pd.Series(0.0, index=index, dtype=float)
+    columns = frame.columns.intersection(index)
+    if columns.empty:
+        return pd.Series(0.0, index=index, dtype=float)
+    values = pd.DataFrame(frame[columns]).apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    values = values.abs() if sign == "abs" else values.clip(lower=0.0)
+    energy = values.mul(weights.reindex(values.index).fillna(1.0), axis=0).sum()
+    return energy.reindex(index).fillna(0.0)
+
+
+def _utilisation_terms(
+    ctx: BuildContext,
+    node: str,
+    horizon: int,
+    kind: UtilisationKind,
+) -> tuple[pd.Series, pd.Series, float] | None:
+    """``(energy, capacity, hours)`` per technology group for one horizon."""
+    try:
+        n = ctx.networks[horizon]
+    except Exception as exc:  # noqa: BLE001 - a missing horizon is not fatal
+        logger.warning("utilisation: no network for horizon %s (%s)", horizon, exc)
+        return None
+    if not len(n.snapshots):
+        logger.warning("utilisation: network for horizon %s has no snapshots", horizon)
+        return None
+
+    power_keys, storage_carriers = _capacity_filter_sets(ctx)
+    specs = (
+        {"Store": _UTILISATION_STORE}
+        if kind == "storage"
+        else dict(_UTILISATION_PORTS)
+    )
+
+    energy_parts: list[pd.Series] = []
+    capacity_parts: list[pd.Series] = []
+    hours = 0.0
+
+    for component, spec in specs.items():
+        static_attr, cap_attr, _ts_attr, _port, _sign = spec
+        static = getattr(n, static_attr, None)
+        if static is None or getattr(static, "empty", True):
+            continue
+        if "carrier" not in static.columns or cap_attr not in static.columns:
+            continue
+
+        index = ctx.component_index(horizon, static_attr, node)
+        if len(index) == 0:
+            continue
+        rows = static.loc[static.index.intersection(index)]
+        carriers = rows["carrier"].astype(str)
+
+        # Same admission rules as ``capacity_table``: the topology filter, then
+        # the ``__omit__`` denylist, then the display grouping.
+        if kind == "storage":
+            if storage_carriers is not None:
+                rows = rows.loc[carriers.isin(storage_carriers)]
+        elif power_keys is not None:
+            keep = carriers.map(lambda c, comp=component: (comp, c) in power_keys)
+            rows = rows.loc[keep]
+        if rows.empty:
+            continue
+
+        carriers = rows["carrier"].astype(str)
+        rows = rows.loc[~omit_carriers(carriers, "capacities")]
+        if rows.empty:
+            continue
+        carriers = rows["carrier"].astype(str)
+        if kind == "storage":
+            techs = carriers.map(
+                lambda c: _STORAGE_RENAMES.get(
+                    c, apply_tech_map(pd.Series([c]), "capacities").iloc[0]
+                )
+            )
+        else:
+            techs = apply_tech_map(carriers, "capacities")
+        rows = rows.loc[techs != OMIT_GROUP]
+        techs = techs.loc[rows.index]
+        if rows.empty:
+            continue
+
+        weights = _snapshot_weights(n, component)
+        hours = max(hours, float(weights.sum()))
+        energy = _throughput(n, spec, rows.index, weights)
+        capacity = pd.to_numeric(rows[cap_attr], errors="coerce").fillna(0.0)
+
+        energy_parts.append(energy.groupby(techs).sum())
+        capacity_parts.append(capacity.groupby(techs).sum())
+
+    if not energy_parts:
+        return None
+    energy_total = pd.concat(energy_parts).groupby(level=0).sum()
+    capacity_total = pd.concat(capacity_parts).groupby(level=0).sum()
+    return energy_total, capacity_total, hours
+
+
+def utilisation_table(
+    ctx: BuildContext, node: str, kind: UtilisationKind = "power"
+) -> pd.DataFrame | None:
+    """Utilisation of the installed fleet for ``node``, per technology group.
+
+    ``power`` returns a **capacity factor** in p.u.: the energy through the
+    rated port over ``p_nom_opt`` × the hours the horizon represents.
+    ``storage`` returns the **equivalent full cycles per year**: the energy
+    discharged over ``e_nom_opt``.
+
+    Rows are the technology groups :func:`capacity_table` uses, so a factor
+    reads directly against the capacity bar above it.  A group without
+    capacity in a horizon is ``NaN``, never ``0``: there is no utilisation to
+    report, and a zero bar would be read as an idle fleet.
+
+    Computed from the solved networks rather than ``csvs/nodal_capacities.csv``
+    because PyPSA-Eur exports no capacity factor for Links — which is every
+    conversion technology (electrolysis, Fischer-Tropsch, CCGT, heat pumps).
+    """
+    if not hasattr(ctx, "networks") or not hasattr(ctx, "horizons"):
+        return None
+
+    energy = pd.DataFrame(dtype=float)
+    capacity = pd.DataFrame(dtype=float)
+    hours: dict[str, float] = {}
+
+    for horizon in ctx.horizons:
+        terms = _utilisation_terms(ctx, node, horizon, kind)
+        if terms is None:
+            continue
+        year = str(horizon)
+        energy_h, capacity_h, hours_h = terms
+        energy = energy.reindex(energy.index.union(energy_h.index))
+        capacity = capacity.reindex(capacity.index.union(capacity_h.index))
+        energy[year] = energy_h.reindex(energy.index)
+        capacity[year] = capacity_h.reindex(capacity.index)
+        hours[year] = hours_h
+
+    if energy.empty:
+        logger.warning("utilisation_table: nothing to report for node %s", node)
+        return None
+
+    index = energy.index.union(capacity.index)
+    energy = energy.reindex(index).fillna(0.0)
+    capacity = capacity.reindex(index).fillna(0.0)
+
+    denominator = capacity.copy()
+    if kind == "power":
+        for year in denominator.columns:
+            denominator[year] = denominator[year] * hours.get(year, 0.0)
+    table = energy.where(denominator > 0.0) / denominator.where(denominator > 0.0)
+
+    table = table.reindex(columns=list(ctx.year_columns))
+    table = table.loc[table.notna().any(axis=1)]
+    if table.empty:
+        return None
+    table.attrs["energy_mwh"] = energy
+    table.attrs["capacity"] = capacity
+    return table.sort_index()
 
 def _warn_unmapped_demand_codes() -> None:
     """Warn when ``carrier_flows_energy.csv`` emits a demand code we never plot.

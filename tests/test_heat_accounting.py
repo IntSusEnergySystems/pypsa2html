@@ -23,9 +23,12 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from pypsa2html.charts.results import _panel_title
+from pypsa2html.charts.results import _POWER_TO_FUEL, _panel_title
 from pypsa2html.datafiles import load_taxonomy
-from pypsa2html.extract.capacity_filter import heat_output_scaling
+from pypsa2html.extract.capacity_filter import (
+    electric_output_scaling,
+    heat_output_scaling,
+)
 from pypsa2html.extract.tables import _DEMAND_CODES
 
 
@@ -139,7 +142,155 @@ def test_empty_network_returns_no_factors():
     )
     assert heat_output_scaling(empty) == {}
 
+# --------------------------------------------------------------------------
+# power-plant capacity on the electrical side
+# --------------------------------------------------------------------------
+def _plant_network():
+    """A fuel-side-rated fleet: PyPSA rates a Link's ``p_nom`` at ``bus0``.
 
-def test_panel_title_flags_the_thermal_axis():
+    ``bus0`` is the *fuel* bus for a CCGT and a CHP, so the raw ``p_nom`` is
+    MW_th.  The heat pump is here to guard the trap: it is a **reversed** link
+    (``bus0`` heat, ``bus1`` electricity), so it matches "delivers electricity
+    at bus1" by accident while its ``p_nom`` is already MW_th.
+    """
+    buses = pd.DataFrame(
+        {
+            "carrier": {
+                "b_ac": "AC",
+                "b_lv": "low voltage",
+                "b_gas": "gas",
+                "b_uranium": "uranium",
+                "b_h2": "H2",
+                "b_heat": "urban central heat",
+                "b_batt": "battery",
+            }
+        }
+    )
+    links = pd.DataFrame(
+        {
+            "bus0": ["b_gas", "b_gas", "b_uranium", "b_ac", "b_ac",
+                     "b_heat", "b_lv", "b_batt", "b_h2", "b_ac"],
+            "bus1": ["b_ac", "b_ac", "b_ac", "b_h2", "b_lv",
+                     "b_lv", "b_heat", "b_ac", "b_gas", "b_batt"],
+            "bus2": ["", "b_heat", "", "", "", "", "", "", "", ""],
+            "carrier": [
+                "CCGT",
+                "urban central gas CHP",
+                "nuclear",
+                "H2 Electrolysis",
+                "electricity distribution grid",
+                "urban central air heat pump",
+                "urban central resistive heater",
+                "battery discharger",
+                "Sabatier",
+                "battery charger",
+            ],
+            "efficiency": [0.57, 0.42, 0.33, 0.66, 0.97, 0.33, 0.9, 0.98, 0.8, 0.98],
+            "p_nom_opt": [1000.0, 500.0, 2000.0, 100.0, 900.0,
+                          300.0, 200.0, 400.0, 50.0, 400.0],
+        },
+        index=["ccgt", "chp", "nuc", "ely", "dist", "hp", "rh", "bd", "sab", "bc"],
+    )
+    return SimpleNamespace(buses=buses, links=links)
+
+
+def _electric_factors(n=None):
+    n = n if n is not None else _plant_network()
+    return electric_output_scaling(n, exclude=heat_output_scaling(n))
+
+
+def test_ccgt_is_restated_on_the_electrical_side():
+    """The bug: a 1000 MW_th CCGT bar is 1.75x its 570 MW_e plate rating."""
+    assert _electric_factors()["CCGT"] == pytest.approx(0.57)
+
+
+def test_chp_is_restated_using_its_electric_port():
+    """``efficiency`` is the bus0 -> bus1 (electric) ratio; heat is bus2."""
+    assert _electric_factors()["urban central gas CHP"] == pytest.approx(0.42)
+
+
+def test_nuclear_is_restated_on_the_electrical_side():
+    assert _electric_factors()["nuclear"] == pytest.approx(0.33)
+
+
+def test_battery_discharger_is_restated_so_it_matches_its_charger():
+    """The charger is rated at ``bus0`` = AC and needs no correction, so
+    without this the two halves of one battery show different capacities."""
+    factors = _electric_factors()
+    assert factors["battery discharger"] == pytest.approx(0.98)
+    assert "battery charger" not in factors
+
+
+def test_reversed_heat_pump_is_not_treated_as_a_generator():
+    """The trap: ``bus1`` is the electricity bus, but that is its *input*.
+
+    Scaling it by 1/COP would shrink an already-thermal p_nom; heat pumps stay
+    MW_th under :func:`heat_output_scaling`.
+    """
+    factors = _electric_factors()
+    assert "urban central air heat pump" not in factors
+    assert heat_output_scaling(_plant_network())["urban central air heat pump"] == 1.0
+
+
+def test_electricity_consuming_links_are_untouched():
+    """Rated at ``bus0`` = electricity already: an electrolyser's p_nom is the
+    MW_e it draws, and the distribution grid is electric on both sides."""
+    factors = _electric_factors()
+    for carrier in (
+        "H2 Electrolysis",
+        "electricity distribution grid",
+        "urban central resistive heater",
+        "battery charger",
+    ):
+        assert carrier not in factors
+
+
+def test_non_electric_outputs_are_untouched():
+    """Methanation delivers gas at ``bus1``; its p_nom stays MW of H2 input."""
+    assert "Sabatier" not in _electric_factors()
+
+
+def test_fleet_efficiency_is_capacity_weighted():
+    """A carrier holds several vintages, and the factor multiplies the summed
+    p_nom — so a 10 MW inefficient unit must not outvote a 1000 MW modern one.
+    """
+    n = _plant_network()
+    n.links = pd.concat(
+        [
+            n.links,
+            pd.DataFrame(
+                {"bus0": ["b_gas"], "bus1": ["b_ac"], "bus2": [""],
+                 "carrier": ["CCGT"], "efficiency": [0.30], "p_nom_opt": [10.0]},
+                index=["ccgt_old"],
+            ),
+        ]
+    )
+    expected = (1000 * 0.57 + 10 * 0.30) / 1010
+    assert _electric_factors(n)["CCGT"] == pytest.approx(expected)
+    assert _electric_factors(n)["CCGT"] > 0.56  # an unweighted mean gives 0.435
+
+
+def test_zero_capacity_still_yields_a_factor():
+    """An empty horizon must not lose the carrier's rating convention."""
+    n = _plant_network()
+    n.links = n.links.assign(p_nom_opt=0.0)
+    assert _electric_factors(n)["CCGT"] == pytest.approx(0.57)
+
+
+def test_electric_and_heat_maps_are_disjoint():
+    n = _plant_network()
+    p2h = heat_output_scaling(n)
+    assert not set(_electric_factors(n)) & set(p2h)
+
+
+def test_empty_network_returns_no_electric_factors():
+    empty = SimpleNamespace(buses=pd.DataFrame({"carrier": {}}), links=pd.DataFrame())
+    assert electric_output_scaling(empty) == {}
+
+
+def test_panel_titles_flag_every_non_electric_axis():
+    """Panels that are not GW_e must say so; the plain electric ones must not."""
     assert _panel_title(["power-to-heat"]) == "Power-to-heat (thermal)"
-    assert "(" not in _panel_title(["solar"])
+    assert _panel_title(_POWER_TO_FUEL) == "Power-to-fuel (input-rated)"
+    for group in (["CCGT"], ["CHP"], ["nuclear"], ["solar"]):
+        assert "(" not in _panel_title(group)
