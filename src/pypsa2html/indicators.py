@@ -780,6 +780,49 @@ def year_weights(ctx, years: Sequence[int]) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
+def _measured_electricity_trade(ctx, node: str, years) -> tuple[pd.Series, pd.Series] | None:
+    """Real cross-border electricity for ``node``, TWh/year, or ``None``.
+
+    The hourly **positive and negative parts** of the node's net exchange over
+    AC lines and DC links, snapshot-weighted — the same quantity
+    :func:`pypsa2html.extract.balance.import_export_series` puts in the energy
+    balance, and the one an import cap constrains.
+
+    It replaces an annual-net residual (see :func:`_close_energy_graph` step 8).
+    That residual was wrong twice over: a region both imports and exports within
+    a year and the net hides one of them, and — because it was whatever closed
+    the ``elc_se`` node — it silently absorbed every mis-attribution elsewhere
+    on that node. On BEWAL 2050 of the 2026-09-05 run it drew **17.2 TWh** of
+    imports and zero exports against a physical 10.0 in / 2.0 out. See D20.
+    """
+    from .extract.balance import import_export_series
+
+    if not hasattr(ctx, "networks"):
+        return None
+    locations = (
+        ctx.locations_for(node)
+        if hasattr(ctx, "locations_for")
+        else (None if ctx.is_aggregate(node) else [node])
+    )
+    imports, exports = _zeros(years), _zeros(years)
+    seen = False
+    for year in years:
+        try:
+            n = ctx.networks[int(year)]
+        except Exception:  # noqa: BLE001 - a missing horizon is not fatal
+            continue
+        try:
+            net = import_export_series(n, ctx.resolver(int(year)), locations)
+        except Exception as err:  # noqa: BLE001 - never break the report
+            logger.warning("electricity trade for %s @ %s: %s", node, year, err)
+            return None
+        weights = n.snapshot_weightings.generators
+        imports.loc[year] = float(net.clip(lower=0).mul(weights).sum()) / 1e6
+        exports.loc[year] = float((-net.clip(upper=0)).mul(weights).sum()) / 1e6
+        seen = True
+    return (imports, exports) if seen else None
+
+
 def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     """Derive the flows the model does not report directly.
 
@@ -887,8 +930,17 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     if not aggregate:
         produced = sum_by(flows, where="Target", nodes=se, by="Target")
         consumed = sum_by(flows, where="Source", nodes=se, by="Source")
+        # Electricity is measured, not inferred: the model carries the actual
+        # cross-border branches, so there is no reason to read trade off a
+        # residual that also absorbs every mapping error on the node. Any
+        # remaining gap is now left visible for `graph_imbalances` to report,
+        # which is the point of that check. D20.
+        measured = _measured_electricity_trade(ctx, node, years)
         for carrier in TRADED_SE_CARRIERS:
             code = f"{carrier}_se"
+            if code == "elc_se" and measured is not None:
+                flows[("imp", code, "")], flows[(code, "exp", "")] = measured
+                continue
             balance = consumed.get(code, _zeros(years)) - produced.get(code, _zeros(years))
             flows[("imp", code, "")] = balance.clip(lower=0)
             flows[(code, "exp", "")] = (-balance).clip(lower=0)

@@ -535,3 +535,59 @@ factor is capacity-weighted (11.43 % for BEWAL 2050) and not a mean of ratios
 
 **Reversibility: Easy** — put `solar,capacities,solar,10` back in
 `tech_groups.csv` and restore `["solar"]` in `_POWER_GROUPS`.
+
+## D20 — Electricity trade is measured, not left as the node residual
+
+**Decided.** `_close_energy_graph` derived the energy Sankey's `imp → elc_se`
+and `elc_se → exp` arrows from the annual **net** balance of the electricity
+node: `consumed − produced`, clipped positive for imports and negative for
+exports. Two things are wrong with that.
+
+**A region imports and exports in the same year.** An annual net can only show
+one of them, so one arrow was always exactly zero. Wallonia in 2050 of the
+2026-09-05 run moves 10.0 TWh in and 2.0 TWh out; the Sankey drew 0 exports.
+
+**Worse, the residual is a plug.** Because it was whatever *closed* `elc_se`,
+it silently absorbed every mis-attribution elsewhere on that node. The same
+2050 case drew **17.2 TWh** of imports — the 10.0 TWh that physically crossed
+the border plus 7.2 TWh of graph error — and the node balanced perfectly, so
+nothing warned. The model was running a **10 TWh import cap** at the time,
+satisfied exactly (dual −5.39 EUR/MWh), so the report contradicted a constraint
+the solver had met. A number that is defined as "whatever makes the picture add
+up" cannot be read as a result.
+
+Electricity is now taken from the model's own cross-border branches, via
+`extract.balance.import_export_series` — the same quantity the energy balance
+already used, and the one an import cap constrains: the hourly positive and
+negative parts of the node's net exchange over AC lines and DC links,
+snapshot-weighted. Verified against both available runs:
+
+| BEWAL | 2025 | 2030 | 2040 | 2050 |
+|---|---:|---:|---:|---:|
+| 2026-09-05 6h, import / export | 1.98 / 2.20 | 2.90 / 3.75 | **6.47** / 3.53 | **10.00** / 1.99 |
+| 20260905 1h, import / export | 0.84 / 4.67 | 2.79 / 4.32 | 14.10 / 1.64 | 21.18 / 0.77 |
+
+The 6h 2040 and 2050 imports land on the cap to the third decimal, which is the
+check that the arrow now means what it says.
+
+**The hole this was hiding is now visible, and that is the point.** With the
+plug gone, `graph_imbalances` reports `elc_se` short by 5.2–5.3 TWh in 2040 and
+9.2–9.5 TWh in 2050 on both runs. It traces to the residential/tertiary branch:
+`elc_fe → res` carries both the specific-electricity codes (`preselccfres`) and
+a second family of heat-pump and electric-heater codes, and their sum exceeds
+what the network withdraws. That is a taxonomy-mapping question for whoever owns
+the code set, not something to paper over again.
+
+Falls back to the old residual whenever `ctx` has no `networks` — which is how
+the négaWatt reference fixtures run, so their ChartData comparisons are
+untouched — and on any extraction error, so a malformed network degrades the
+arrow rather than the build.
+
+| | Pro | Con |
+|---|---|---|
+| **Measured trade (chosen)** | The arrow is the physical flow and matches any import constraint; imports and exports both appear; mapping errors surface instead of hiding | The Sankey no longer closes on `elc_se` until the demand-side mapping is fixed |
+| *Residual plug (previous)* | Node always balances; no network needed | The headline trade number is a plug; exports invisible; silently absorbs bugs |
+| *Measured, then re-plug the remainder (rejected)* | Pretty and correct-looking | Same lie in a new place, and no warning |
+
+**Reversibility: Easy** — drop the `measured is not None` branch in
+`_close_energy_graph` step 8.

@@ -119,7 +119,7 @@ def energy_balance(
     supply = _one_port_flows(n, resolver, buses, locations, supply)
 
     if carrier == "AC":
-        imp_exp = _import_export(n, resolver, locations)
+        imp_exp = import_export_series(n, resolver, locations)
         supply = supply.assign(Imports_Exports=imp_exp)
 
     if carrier == "heat":
@@ -213,7 +213,14 @@ def _one_port_flows(
     return pd.concat(parts, axis=1)
 
 
-def _import_export(n, resolver, locations: list[str] | None) -> pd.Series:
+def import_export_series(n, resolver, locations: list[str] | None) -> pd.Series:
+    """Hourly **net** electricity exchange of ``locations``, MW, + = inflow.
+
+    Sums the AC lines and DC links that cross the boundary, taking each branch
+    at the end that touches the node, so line losses stay outside. Public
+    because :mod:`pypsa2html.indicators` needs the same quantity to draw the
+    import and export arrows of the energy Sankey — see D20.
+    """
     if locations is None:
         ac_out = n.lines_t.p0.sum(axis=1)
         ac_in = n.lines_t.p1.sum(axis=1)
