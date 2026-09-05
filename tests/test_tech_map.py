@@ -135,3 +135,44 @@ def test_ccs_capacity_group_is_fuel_input_not_ccgt_cc(tech_groups):
     assert list(mapped.iloc[:4]) == ["CCS"] * 4
     assert mapped.iloc[4] == "CCGT CC"
     assert mapped.iloc[5] == "CHP"
+
+
+def test_pv_carriers_get_one_capacity_group_each(tech_groups):
+    """``solar`` / ``solar rooftop`` / ``solar-hsat`` are three capacity groups.
+
+    They are different assets: ground-mounted and tracking PV compete for land
+    and pay the ``electricity grid connection`` adder, rooftop does neither.
+    Collapsing them hid the 2050 Walloon result — ground PV retiring to zero
+    while tracking PV appears — behind a flat "solar" bar.
+    """
+    mapped = apply_tech_map(
+        pd.Series(["solar", "solar rooftop", "solar-hsat"]),
+        "capacities",
+        tech_groups=tech_groups,
+    )
+    assert list(mapped) == [
+        "solar PV (ground)",
+        "solar PV (rooftop)",
+        "solar PV (tracking)",
+    ]
+
+
+def test_solar_thermal_is_not_counted_as_pv_capacity(tech_groups):
+    """Collectors are MW_th on a heat bus and must not stack onto the PV bar.
+
+    The substring rule ``solar`` used to catch ``rural solar thermal`` and
+    friends, which added 445 MW_th to BEWAL's 4 088 MW of 2025 PV — an 11 %
+    overstatement on a chart whose axis says GW_e.
+    """
+    mapped = apply_tech_map(
+        pd.Series(
+            [
+                "rural solar thermal",
+                "urban central solar thermal",
+                "urban decentral solar thermal",
+            ]
+        ),
+        "capacities",
+        tech_groups=tech_groups,
+    )
+    assert set(mapped) == {"solar thermal"}

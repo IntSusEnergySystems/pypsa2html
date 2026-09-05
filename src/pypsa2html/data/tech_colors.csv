@@ -251,6 +251,9 @@ SMR CC,#4f1745
 solar,#f9d002
 solar curtailment,#ffd700
 solar PV,#f9d002
+solar PV (ground),#f9d002
+solar PV (rooftop),#ffea80
+solar PV (tracking),#c98f00
 solar rooftop,#ffea80
 solar thermal,#ffbf2b
 solid,#545454

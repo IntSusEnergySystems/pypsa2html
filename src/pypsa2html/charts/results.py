@@ -17,9 +17,11 @@ from plotly.subplots import make_subplots
 
 from ..carriers import ccs_parent_carrier
 from ..extract.tables import (
+    UTILISATION_FOLD,
     capacity_table,
     cost_table,
     demand_table,
+    fold_utilisation_index,
     utilisation_table,
 )
 from .base import (
@@ -50,9 +52,25 @@ _CAPACITY_SCALE = 1e-3
 #: each one and a blank neighbour.  They used to occupy three separate panels.
 _POWER_TO_FUEL: list[str] = ["electrolysis", "methanation", "Fischer-Tropsch"]
 
+#: The three PV carriers are reported separately in the *capacity* charts.
+#: They are not interchangeable — ground-mounted and tracking PV compete for
+#: land, rooftop PV does not, they carry different capital costs (79.1 / 80.9 /
+#: 97.3 kEUR/MW/a in 2050) and only rooftop is exempt from the
+#: ``electricity grid connection`` adder — and in the Walloon runs the split
+#: moves while the total barely does: ground PV falls to zero by 2050 while
+#: tracking PV appears, which a single "solar" bar hides completely.
+#: Their *capacity factors* are near-identical (11.1 / 11.1 / 12.9 %), so the
+#: utilisation charts fold them back — see
+#: :data:`pypsa2html.extract.tables.UTILISATION_FOLD`.
+_SOLAR_PV: list[str] = [
+    "solar PV (rooftop)",
+    "solar PV (ground)",
+    "solar PV (tracking)",
+]
+
 #: Faceted capacity panels — port of ``create_capacity_chart`` groups.
 _POWER_GROUPS: list[list[str]] = [
-    ["solar"],
+    _SOLAR_PV,
     ["onshore wind", "offshore wind"],
     ["power-to-heat"],
     _POWER_TO_FUEL,
@@ -64,7 +82,7 @@ _POWER_GROUPS: list[list[str]] = [
 
 #: Aggregate-node panels swap CHP for power-to-liquid (legacy ``groupss``).
 _POWER_GROUPS_AGGREGATE: list[list[str]] = [
-    ["solar"],
+    _SOLAR_PV,
     ["onshore wind", "offshore wind"],
     ["power-to-heat"],
     _POWER_TO_FUEL,
@@ -144,6 +162,7 @@ _PANEL_UNIT_NOTE = {
 #: neighbour; the members are named in the legend either way.
 _PANEL_TITLES: dict[tuple[str, ...], str] = {
     tuple(_POWER_TO_FUEL): "Power-to-fuel",
+    tuple(_SOLAR_PV): "Solar PV",
     ("onshore wind", "offshore wind"): "Wind",
 }
 
@@ -373,7 +392,12 @@ def _compute_aligned_utilisation(ctx, node: str, kind: str) -> pd.DataFrame | No
     capacities = capacity_table(ctx, node, kind)
     if capacities is None or capacities.empty:
         return table
-    dropped = table.index.difference(capacities.index)
+    # The capacity chart splits PV into ground / rooftop / tracking and the
+    # utilisation table folds them back, so align on the *folded* capacity
+    # index — otherwise the single "solar" factor has no matching row and the
+    # chart loses solar entirely.
+    allowed = pd.Index(dict.fromkeys(fold_utilisation_index(capacities.index)))
+    dropped = table.index.difference(allowed)
     if len(dropped):
         logger.info(
             "utilisation %s/%s: not on the capacity chart, dropped: %s",
@@ -381,7 +405,7 @@ def _compute_aligned_utilisation(ctx, node: str, kind: str) -> pd.DataFrame | No
             kind,
             ", ".join(str(d) for d in dropped),
         )
-    aligned = table.reindex(index=capacities.index)
+    aligned = table.reindex(index=allowed)
     aligned = aligned.loc[aligned.notna().any(axis=1)]
     return None if aligned.empty else aligned
 
@@ -399,14 +423,26 @@ def capacity_factors(ctx, node: str, section) -> go.Figure | None:
     )
 
 
+def _fold_groups(groups: list[list[str]]) -> list[list[str]]:
+    """Panel membership after :data:`UTILISATION_FOLD`, order kept, deduplicated."""
+    return [
+        list(dict.fromkeys(UTILISATION_FOLD.get(tech, tech) for tech in group))
+        for group in groups
+    ]
+
+
 def capacity_factors_by_tech(ctx, node: str, section) -> go.Figure | None:
-    """Capacity factors in the same panels as ``capacities_by_tech``."""
+    """Capacity factors in the same panels as ``capacities_by_tech``.
+
+    The PV panel carries one folded ``solar`` bar rather than the three the
+    capacity panel shows — see :data:`UTILISATION_FOLD`.
+    """
     table = _aligned_utilisation(ctx, node, "power")
     if table is None or table.empty:
         logger.warning("section %s: nothing to plot for node %s", section.id, node)
         return None
     add_chart_data(ctx, node, section.title, section.unit, (table * _UTILISATION_SCALE).T)
-    groups = (
+    groups = _fold_groups(
         _POWER_GROUPS_AGGREGATE
         if _study_wide_panels(ctx, node)
         else _POWER_GROUPS

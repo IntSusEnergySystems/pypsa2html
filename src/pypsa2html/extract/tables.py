@@ -862,6 +862,32 @@ def _utilisation_terms(
     return energy_total, capacity_total, hours
 
 
+#: Capacity display groups folded back to one row in the *utilisation* tables.
+#:
+#: ``tech_groups.csv`` splits PV into ground / rooftop / tracking for the
+#: capacity charts, because those three capacities move independently.  Their
+#: capacity factors do not — the same irradiation drives all three, and the
+#: only spread is the tracking gain (11.1 / 11.1 / 12.9 % at BEWAL in the
+#: 2026-09-05 run) — so three near-identical bars would be noise where one
+#: number is the answer.
+#:
+#: The fold is applied to ``energy`` and ``capacity`` *before* the division, so
+#: the folded factor is the capacity-weighted one, not a mean of ratios.
+UTILISATION_FOLD: dict[str, str] = {
+    "solar PV (ground)": "solar",
+    "solar PV (rooftop)": "solar",
+    "solar PV (tracking)": "solar",
+}
+
+
+def fold_utilisation_index(index: pd.Index) -> pd.Index:
+    """``index`` with :data:`UTILISATION_FOLD` applied, order preserved."""
+    return pd.Index(
+        [UTILISATION_FOLD.get(str(name), str(name)) for name in index],
+        name=index.name,
+    )
+
+
 def utilisation_table(
     ctx: BuildContext, node: str, kind: UtilisationKind = "power"
 ) -> pd.DataFrame | None:
@@ -907,6 +933,12 @@ def utilisation_table(
     index = energy.index.union(capacity.index)
     energy = energy.reindex(index).fillna(0.0)
     capacity = capacity.reindex(index).fillna(0.0)
+
+    # Fold the split PV groups before dividing (capacity-weighted factor).
+    folded = fold_utilisation_index(energy.index)
+    if not folded.equals(energy.index):
+        energy = energy.groupby(folded).sum()
+        capacity = capacity.groupby(folded).sum()
 
     denominator = capacity.copy()
     if kind == "power":

@@ -107,6 +107,10 @@ resistive heater,capacities,power-to-heat,1
 ^CHP$,capacities,CHP,7
 ^H2 Fuel Cell$,capacities,CHP,8
 ^H2 turbine$,capacities,CHP,9
+^solar PV$,capacities,solar PV (ground),10
+^solar rooftop$,capacities,solar PV (rooftop),10
+^solar-hsat$,capacities,solar PV (tracking),10
+^solar thermal$,capacities,solar thermal,10
 solar,capacities,solar,10
 ^Fischer-Tropsch$,capacities,Fischer-Tropsch,11
 offshore wind,capacities,offshore wind,12

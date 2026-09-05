@@ -494,3 +494,44 @@ residual of the group's closed graph, not a sum of regional import columns.
 | *Pie of 2050 imports (rejected)* | Shows import mix | Hardcoded to Belgium, two scenarios, one year |
 
 **Reversibility: Easy** — `plots: {self_sufficiency: false, self_sufficiency_balance: false, energy_independence: false}`.
+
+## D19 — PV is three capacities and one capacity factor
+
+**Decided.** `tech_groups.csv` collapsed every carrier whose name contains
+`solar` into a single `solar` capacity group. That hid two different things.
+
+**The three PV carriers are not interchangeable.** `solar` (fixed-tilt ground),
+`solar-hsat` (single-axis tracking) and `solar rooftop` compete for different
+resources — ground and tracking PV need land, rooftop does not — carry
+different capital costs, and only the two ground carriers pay the
+`electricity grid connection` adder, because rooftop PV is added behind the
+distribution grid in `prepare_sector_network`. In the 2026-09-05 Walloon run
+that adder is 18 589 EUR/MW/a, i.e. **31 % of ground PV's annualised cost and
+0 % of rooftop's**. The split is where the result lives: BEWAL goes from
+2 318 MW ground + 1 770 MW rooftop in 2025 to **0 ground + 5 250 rooftop +
+1 305 tracking** in 2050, while the total moves only 4 088 → 6 554 MW. One
+`solar` bar showed a smooth rise and hid a fleet turning over completely.
+
+**`solar thermal` is not PV at all.** The substring rule also caught
+`rural solar thermal`, `urban central solar thermal` and
+`urban decentral solar thermal` — MW_th collectors on a heat bus — and stacked
+them onto an axis labelled GW_e. At BEWAL that added 446 MW_th to 4 088 MW of
+2025 PV, an **11 % overstatement**. Collectors now have their own group.
+
+**Capacity factors stay folded.** The same irradiation drives all three PV
+carriers and the only spread is the tracking gain (11.1 / 11.1 / 12.9 % at
+BEWAL in 2050), so three near-identical bars would be noise where one number
+is the answer. `UTILISATION_FOLD` in `extract/tables.py` folds them back, and
+`_fold_groups` applies the same fold to the faceted panel membership. The fold
+is applied to `energy` and `capacity` **before** the division, so the reported
+factor is capacity-weighted (11.43 % for BEWAL 2050) and not a mean of ratios
+(which would read 12.0 %).
+
+| | Pro | Con |
+|---|---|---|
+| **Split capacity, fold utilisation (chosen)** | The chart shows what moves; the factor chart stays readable; units no longer mixed | Two group vocabularies to keep in step — `_fold_groups` is the only bridge |
+| *Split both (rejected)* | One vocabulary | Three bars that differ by 1.8 points, on a chart read for outliers |
+| *Collapse both (previous)* | Simplest | Hides the ground→rooftop→tracking turnover and mixes MW_th into GW_e |
+
+**Reversibility: Easy** — put `solar,capacities,solar,10` back in
+`tech_groups.csv` and restore `["solar"]` in `_POWER_GROUPS`.

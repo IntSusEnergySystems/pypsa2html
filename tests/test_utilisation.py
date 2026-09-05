@@ -20,6 +20,7 @@ from pypsa2html.charts.results import (
     _POWER_GROUPS_AGGREGATE,
     _POWER_TO_FUEL,
     _faceted_capacity_chart,
+    _fold_groups,
     _panel_title,
 )
 from pypsa2html.extract.tables import utilisation_table
@@ -177,9 +178,12 @@ def test_fill_missing_false_invents_no_zero_bars():
     """A zero-height capacity bar says "none built"; a zero-height *factor*
     bar says "built and never run".  Only the first is safe to invent."""
     table = pd.DataFrame({"2030": [0.12]}, index=["solar"])
-    filled = _faceted_capacity_chart(table, _POWER_GROUPS, unit="%", scale=100.0)
+    # Utilisation panels use the folded groups, as ``capacity_factors_by_tech``
+    # does: the capacity chart splits PV, the factor chart does not.
+    groups = _fold_groups(_POWER_GROUPS)
+    filled = _faceted_capacity_chart(table, groups, unit="%", scale=100.0)
     bare = _faceted_capacity_chart(
-        table, _POWER_GROUPS, unit="%", scale=100.0, fill_missing=False
+        table, groups, unit="%", scale=100.0, fill_missing=False
     )
     assert "Nuclear" in {t.name for t in filled.data}
     assert {t.name for t in bare.data} == {"Solar"}
