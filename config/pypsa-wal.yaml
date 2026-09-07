@@ -13,6 +13,13 @@ model:
   opts: ""
   sector_opts: ""
   planning_horizons: null      # 2025 / 2030 / 2040 / 2050, discovered on disk
+  # 10 GWh, not the 100 GWh default. The threshold is not only a decluttering
+  # choice: a dropped flow is a flow the Sankey's energy-conservation check
+  # (`graph_imbalances`) then reports as a hole. On a region the size of
+  # Wallonia the default silently deleted the whole agricultural electricity
+  # demand (0.063 TWh) and both district-heat storage legs, and with them
+  # 0.3 TWh of the electricity node's balance.
+  flow_threshold: 0.01
 
 nodes:
   detect: true

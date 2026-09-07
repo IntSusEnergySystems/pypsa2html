@@ -591,3 +591,83 @@ arrow rather than the build.
 
 **Reversibility: Easy** — drop the `measured is not None` branch in
 `_close_energy_graph` step 8.
+
+## D21 — The heat-pump `_2` row is electricity, and the graph re-groups after aggregating
+
+**Decided.** D20 ended by naming the hole it had stopped hiding: `elc_se` short
+5.2–5.3 TWh in 2040 and 9.2–9.5 TWh in 2050, traced no further than "the
+residential branch carries more than the network withdraws". This is what it
+was, and it was not a taxonomy question after all — it was two extraction bugs
+in `extract/flows.py`.
+
+**A heat pump is ambient heat plus electricity, and the second row said heat.**
+Every heat-pump carrier emits two rows: rank 1 the ambient intake, rank 2 —
+`…_2` in `carrier_flows_energy.csv` — the electricity draw, which the taxonomy
+books as `elc_fe → res` for the decentral pumps and `elc_se → vap_se` for the
+district-heating ones. `_heat_pump_rows` built that second row from `-p0`, the
+**heat output**. Its label ("Heat energy output from centralised heat pumps")
+even said so; the edge it hangs on did not. So the electricity node was charged
+for the ambient intake as well:
+
+| BEWAL 2040 | ambient | electricity | rank-2 row was |
+|---|---:|---:|---:|
+| rural ground heat pump | 4.469 | 1.937 | **6.406** |
+| urban decentral air heat pump | 4.633 | 3.994 | **8.626** |
+
+The row is now `heat_out − ambient`, where ambient is minus the sum over the
+link's ports — the quantity the dropped "losses" row already carried. The two
+rows add to the heat delivered, which is what makes the node close.
+
+**Rows that become identical after aggregation were never re-grouped.**
+`_link_flows` groups while the bus carriers are still the network's own;
+`_aggregate_carriers` then folds every `…heat` bus to `heat` and `low voltage`
+to `AC`, which makes two vintages of one carrier on *different* buses the same
+row — and they reached `_rank_entries` as duplicates competing for one name.
+Rank 1 went to whichever the stable sort put first, routinely a retired vintage
+carrying zero. `BEWAL urban central resistive heater` had four vintages in 2030,
+the 2015/2019 ones still on the AC bus at `p_nom_opt` 0; the zero row took
+`prbchresh` (`elc_se → vap_se`) and the real 0.388 TWh_th was pushed onto
+`prbchreshh`, the *losses* edge. `_aggregate_carriers` now ends in `_group`.
+
+Two smaller items came with them: `rural air heat pump` had no mapping at all
+(1.13 TWh of BEWAL 2040 electricity missing), and the agricultural correction in
+`_close_energy_graph` ran *after* the `pac_pe → pac_fe` closure had totalled the
+outflow, leaving `pac_fe` short by exactly the agricultural heat — 0.147 TWh on
+BEWAL, in every horizon.
+
+Measured on the 20260907 run, `graph_imbalances` over all regions:
+
+| | before | after |
+|---|---:|---:|
+| unbalanced node-years | 53 | 45 |
+| worst `elc_se` (ALL 2050 / 2040) | +642.9 / +439.4 TWh | balanced / +36.2 TWh |
+| BEWAL `elc_se` 2040 / 2050 | +7.22 / +9.29 TWh | balanced / balanced |
+| BEWAL `pac_fe`, every horizon | −0.147 TWh | balanced |
+
+**What is left is a long tail, and it is named.** BEWAL keeps `elc_se` 2025
+−0.64 TWh and `vap_se` 2025 −0.08 TWh. The three known contributors are the
+pumped-hydro StorageUnit's round-trip loss (0.346 TWh, no edge exists — a
+StorageUnit is not a Link and the graph has no `phs_se` node), the rank-1
+`H2 pipeline` row (0.032 TWh, unmapped), and `urban central heat vent`, whose
+carrier and bus carrier both normalise to `heat` so `_drop_structural` deletes
+it as a self-loop (0.084 TWh of dumped district heat). Each needs a taxonomy
+decision, not an extraction fix.
+
+**The check is no longer only a log line.** `_warn_imbalances` logged one line
+per region as the pages were built — hundreds of lines into a build log, which
+is how the 2026-09-06 run reached S3 with `elc_se` short 9.3 TWh. Every node's
+result is now collected on the context, written to `graph_imbalances.csv` beside
+the HTML, and summarised in one line at the end of the build, where the operator
+is already looking. `output.fail_on_graph_imbalance` turns that summary into an
+exception for callers that want a gate; it is off by default, because making
+every taxonomy gap fatal would fail the pipeline for holes nobody is ready to
+close.
+
+| | Pro | Con |
+|---|---|---|
+| **Fix the rows, publish the residual (chosen)** | The nodes that can close, do; what cannot is named and measured | Some holes remain visible on public pages |
+| *Re-plug `elc_se` with the residual* | Every picture closes | D20 again, one layer down |
+| *Fail the build on any imbalance* | Nothing wrong ever ships | Pipelines fail on known, accepted gaps |
+
+**Reversibility: Easy** — the two extraction changes are local to
+`_heat_pump_rows` and the last line of `_aggregate_carriers`.

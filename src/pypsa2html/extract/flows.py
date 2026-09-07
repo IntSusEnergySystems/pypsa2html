@@ -284,7 +284,7 @@ def _heat_pump_rows(
     *,
     totals: dict[int, pd.Series] | None = None,
 ) -> pd.DataFrame:
-    """Restate the heat-pump rows as *ambient* heat plus total heat output.
+    """Split each heat pump into its *ambient* intake and its *electricity* draw.
 
     In both reference models a heat pump link is oriented heat-first
     (``bus0`` = heat sink, ``bus1`` = electricity), so the port-1 row only
@@ -293,8 +293,24 @@ def _heat_pump_rows(
     it from ``p0`` and then subtracted the two frames *positionally* with
     ``.values``; here the subtraction is aligned on the group key.
 
-    The heat-pump losses row is dropped: with the ambient term accounted for
-    there is nothing left over.
+    The two rows a heat-pump carrier emits are therefore
+
+    ``ambient`` (rank 1)
+        ``heat_out - electricity``, i.e. minus the sum over the link's ports.
+        The taxonomy books it ``pac_pe -> pac_fe -> res``.
+    ``electricity`` (rank 2, the ``_2`` entry)
+        the port-1 draw.  The taxonomy books it ``elc_fe -> res`` for the
+        decentral pumps and ``elc_se -> vap_se`` for the district-heating ones.
+
+    They add up to the heat delivered, which is what makes the electricity node
+    close.  Until 2026-09-07 the second row carried the *heat output* instead —
+    matching its "Heat energy output" label but not the ``elc_*`` edge the
+    taxonomy hangs it on — so every region's ``elc_se`` node reported the whole
+    ambient intake as electricity consumed: BEWAL 2050 was short 9.3 TWh on
+    73.1 TWh in, ALL 2050 short 643 TWh.  See ``graph_imbalances``.
+
+    The heat-pump losses row is dropped: it *is* the ambient term with the
+    opposite sign, and with the ambient accounted for there is nothing left.
     """
     links = network.links.loc[index]
     is_pump = links["carrier"].str.contains("heat pump")
@@ -302,29 +318,36 @@ def _heat_pump_rows(
         return flows
 
     pumps = links[is_pump]
+    ports = _link_ports(network)
     if totals is not None and 0 in totals:
-        bus0_total = -totals[0].reindex(pumps.index).fillna(0.0)
+        port_total = {p: totals[p].reindex(pumps.index).fillna(0.0) for p in ports if p in totals}
     else:
         weights = network.snapshot_weightings.generators
-        bus0_total = -_port_total(network, weights, 0, pumps.index)
-    output = pd.DataFrame(
+        port_total = {p: _port_total(network, weights, p, pumps.index) for p in ports}
+    bus0_total = -port_total[0]
+    # Σ_ports p = -(ambient), because ambient is the only inflow with no bus.
+    ambient = -sum(port_total.values())
+    electricity = bus0_total - ambient
+    frame = pd.DataFrame(
         {
             "carrier": pumps["carrier"],
             "source": pumps["bus0"].map(network.buses.carrier),
             "target": pumps["bus1"].map(network.buses.carrier),
-            "value": bus0_total,
             "origin": "link",
             # sorts after every real port and after the losses port
-            "port": max(_link_ports(network)) + 2,
+            "port": max(ports) + 2,
         }
     )
-    output = _group(output)
+    output = _group(frame.assign(value=electricity))
+    # The ambient row is the port-1 draw minus the *heat output*, so the
+    # correction below keeps carrying the heat, not the electricity.
+    heat_out = _group(frame.assign(value=bus0_total))
 
     pump_rows = flows["carrier"].str.contains("heat pump")
     flows = flows[~(pump_rows & (flows["target"] == LOSSES))].copy()
 
     key = ["carrier", "source", "target"]
-    correction = output.set_index(key)["value"]
+    correction = heat_out.set_index(key)["value"]
     pump_rows = flows["carrier"].str.contains("heat pump")
     aligned = pd.MultiIndex.from_frame(flows.loc[pump_rows, key])
     flows.loc[pump_rows, "value"] -= correction.reindex(aligned).fillna(0.0).to_numpy()
@@ -581,6 +604,23 @@ def _natural_charging_row(
 # assembly
 # --------------------------------------------------------------------------
 def _aggregate_carriers(flows: pd.DataFrame) -> pd.DataFrame:
+    """Fold the bus carriers onto the Sankey's node set, then re-group.
+
+    The re-group is not cosmetic.  Rows are grouped once inside
+    :func:`_link_flows`, while the bus carriers are still the network's own, so
+    two vintages of one carrier sitting on *different* buses stay two rows.
+    This function is what makes them the same row — every "…heat" bus becomes
+    ``heat``, ``low voltage`` becomes ``AC`` — and without a second
+    :func:`_group` they reach :func:`_rank_entries` as duplicates competing for
+    the same name.  Rank 1 then goes to whichever one the stable sort happens to
+    put first, and that is routinely the *retired* vintage carrying zero:
+
+    ``BEWAL urban central resistive heater`` had four vintages in 2030, the
+    2015/2019 ones still on the AC bus with ``p_nom_opt`` 0.  The zero row took
+    ``urban central resistive heater`` → ``prbchresh`` (``elc_se -> vap_se``)
+    and the real 0.388 TWh_th was pushed onto ``…_2`` → ``prbchreshh``, the
+    *losses* edge.  The district-heat node was short exactly that much.
+    """
     flows = flows.copy()
     for side, needle, replacement in _AGGREGATION_RULES:
         for column in ("source", "target") if side == "both" else (side,):
@@ -591,7 +631,7 @@ def _aggregate_carriers(flows: pd.DataFrame) -> pd.DataFrame:
             "demand", na=False
         )
         flows.loc[hit, column] = "heat"
-    return flows
+    return _group(flows)
 
 
 def _orient(flows: pd.DataFrame) -> pd.DataFrame:

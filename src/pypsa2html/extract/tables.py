@@ -903,6 +903,14 @@ def utilisation_table(
     capacity in a horizon is ``NaN``, never ``0``: there is no utilisation to
     report, and a zero bar would be read as an idle fleet.
 
+    "Without capacity" means *below*
+    :attr:`~pypsa2html.config.ModelConfig.utilisation_capacity_floor`, not
+    strictly zero.  A barrier solve with no crossover leaves kilowatt-scale
+    ``p_nom_opt`` on technologies it did not build — CCGT CC in the early
+    Walloon horizons, most of the power-to-fuel routes — and dividing their
+    equally degenerate dispatch by that gives a full-looking capacity factor
+    standing over an empty capacity bar.
+
     Computed from the solved networks rather than ``csvs/nodal_capacities.csv``
     because PyPSA-Eur exports no capacity factor for Links — which is every
     conversion technology (electrolysis, Fischer-Tropsch, CCGT, heat pumps).
@@ -940,7 +948,21 @@ def utilisation_table(
         energy = energy.groupby(folded).sum()
         capacity = capacity.groupby(folded).sum()
 
-    denominator = capacity.copy()
+    floor = float(getattr(ctx.config.model, "utilisation_capacity_floor", 0.0) or 0.0)
+    installed = capacity >= max(floor, 0.0)
+    installed &= capacity > 0.0  # a floor of 0 must still reject an empty fleet
+    dropped = int((~installed & (capacity > 0.0)).to_numpy().sum())
+    if dropped:
+        logger.info(
+            "utilisation %s/%s: %d technology-year(s) under the %.3g MW capacity "
+            "floor, no factor reported",
+            node,
+            kind,
+            dropped,
+            floor,
+        )
+
+    denominator = capacity.where(installed)
     if kind == "power":
         for year in denominator.columns:
             denominator[year] = denominator[year] * hours.get(year, 0.0)

@@ -90,6 +90,14 @@ class ModelConfig:
     base_year_source: str | None = None
     #: Absolute threshold below which a flow is dropped, in TWh (or Mt for CO2).
     flow_threshold: float = 0.1
+    #: Installed capacity (MW, or MWh for stores) below which no utilisation is
+    #: reported.  A capacity factor is a ratio, so a degenerate p_nom_opt of a
+    #: few kW — routinely left behind by a barrier solve with no crossover —
+    #: divides a near-zero dispatch by a near-zero fleet and prints a confident
+    #: percentage for a technology whose capacity bar is invisible.  The default
+    #: is one megawatt: below that the capacity chart (GW, 3 significant digits)
+    #: cannot draw the bar the factor would have to be read against.
+    utilisation_capacity_floor: float = 1.0
     #: How many solved networks to keep in RAM.  ``None`` = one per horizon
     #: (avoids thrashing the LRU during dispatch/maps/overview).  Set a small
     #: positive int only when RAM is tight.
@@ -195,6 +203,13 @@ class OutputConfig:
     #: Write the per-chart data workbook next to the HTML.
     chart_data: bool = True
     write_index: bool = True
+    #: Raise instead of warning when a Sankey transformation node does not
+    #: conserve energy.  A published Sankey with an unbalanced electricity node
+    #: is a wrong page, not a cosmetic one, but making it fatal by default would
+    #: turn every taxonomy gap into a failed pipeline — so the build writes
+    #: ``graph_imbalances.csv`` and logs a consolidated summary, and a caller
+    #: that wants a gate turns this on.
+    fail_on_graph_imbalance: bool = False
 
 
 @dataclass

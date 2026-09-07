@@ -39,6 +39,8 @@ rural oil boiler,rural oil boiler,TWh,prespetcfres
 urban decentral oil boiler,urban decentral oil boiler,TWh,prespetcfo
 rural ground heat pump,rural ground heat pump,TWh,prespaccfta
 rural ground heat pump_2,rural ground heat pump,TWh,prespaccftaa
+rural air heat pump,rural air heat pump,TWh,prespaccfres
+rural air heat pump_2,rural air heat pump,TWh,prespaccfra
 urban decentral air heat pump,urban decentral air heat pump,TWh,prespaccfftt
 urban decentral air heat pump_2,urban decentral air heat pump,TWh,prespaccffff
 rural resistive heater,rural resistive heater,TWh,preehplyy

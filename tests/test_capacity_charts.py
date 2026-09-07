@@ -86,3 +86,46 @@ def test_faceted_storage_capacity_panels():
 
 def test_faceted_capacity_returns_none_for_empty_table():
     assert _faceted_capacity_chart(pd.DataFrame(), _POWER_GROUPS, unit="GW") is None
+
+
+def test_pv_panel_stacks_while_every_other_panel_stays_grouped():
+    """The three PV carriers add up to one fleet, so the capacity panel stacks.
+
+    Plotly's ``barmode`` is figure-wide, so the per-panel choice rides on
+    ``offsetgroup``: the PV traces share one, the rest each get their own.
+    """
+    from pypsa2html.charts.results import _STACKED_CAPACITY_PANELS
+
+    table = pd.DataFrame(
+        {"2025": [1770.0, 2318.0, 0.0, 3000.0, 500.0], "2050": [5250.0, 0.0, 1305.0, 4000.0, 900.0]},
+        index=[*_SOLAR_PV, "onshore wind", "offshore wind"],
+    )
+    fig = _faceted_capacity_chart(
+        table, _POWER_GROUPS, unit="GW", stacked_groups=_STACKED_CAPACITY_PANELS
+    )
+    assert fig.layout.barmode == "relative"
+    by_name = {t.name: t for t in fig.data}
+    pv = [by_name[n] for n in ("Solar PV (rooftop)", "Solar PV (ground)", "Solar PV (tracking)")]
+    assert len({t.offsetgroup for t in pv}) == 1, "PV must share one slot to stack"
+    wind = [by_name["Onshore wind"], by_name["Offshore wind"]]
+    assert len({t.offsetgroup for t in wind}) == 2, "wind must keep separate slots"
+    # The stack is the sum, and the values themselves are untouched.
+    assert [sum(v) for v in zip(*(t.y for t in pv))] == [4.088, 6.555]
+
+
+def test_capacity_factor_panels_are_never_stacked():
+    """Capacity factors are intensive: stacking three would invent a number."""
+    table = pd.DataFrame(
+        {"2025": [0.11, 0.25, 0.4], "2050": [0.13, 0.26, 0.45]},
+        index=["solar", "onshore wind", "offshore wind"],
+    )
+    fig = _faceted_capacity_chart(
+        _fold_groups(_POWER_GROUPS) and table,
+        _fold_groups(_POWER_GROUPS),
+        unit="%",
+        scale=100.0,
+        shared_y=False,
+        fill_missing=False,
+    )
+    assert fig.layout.barmode == "group"
+    assert len({t.offsetgroup for t in fig.data}) == len(fig.data)

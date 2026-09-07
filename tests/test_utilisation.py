@@ -215,3 +215,38 @@ def test_grouped_bar_drops_all_missing_rows():
 
 def test_grouped_bar_returns_none_for_empty_table():
     assert grouped_bar(pd.DataFrame(), unit="%") is None
+
+
+# ---------------------------------------------------------------------------
+# The capacity floor
+# ---------------------------------------------------------------------------
+
+def _with_floor(ctx, floor: float):
+    """``ctx`` with a utilisation capacity floor, sharing nothing cached."""
+    model = SimpleNamespace(base_year=None, utilisation_capacity_floor=floor)
+    return SimpleNamespace(
+        **{k: v for k, v in vars(ctx).items() if k not in ("config", "_files")},
+        config=SimpleNamespace(
+            raw=ctx.config.raw, features=ctx.config.features, model=model
+        ),
+        _files={},
+    )
+
+
+def test_capacity_below_the_floor_reports_no_factor(mini_ctx):
+    """A fleet too small to draw is too small to divide by.
+
+    ``solar`` holds 800 MW and ``CCGT`` 2000 MW in ``mini.nc``; a 900 MW floor
+    must silence the first and leave the second untouched.
+    """
+    floored = utilisation_table(_with_floor(mini_ctx, 900.0), "AA", "power")
+    assert floored is not None
+    assert "solar" not in floored.index
+    assert floored.loc["CCGT", "2030"] == pytest.approx(0.2)
+
+
+def test_a_zero_floor_keeps_the_old_behaviour(mini_ctx):
+    """Opting out restores "any capacity at all counts"."""
+    baseline = utilisation_table(mini_ctx, "AA", "power")
+    off = utilisation_table(_with_floor(mini_ctx, 0.0), "AA", "power")
+    pd.testing.assert_frame_equal(baseline, off)

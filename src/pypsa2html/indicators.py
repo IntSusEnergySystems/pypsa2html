@@ -478,9 +478,37 @@ def graph_imbalances(
     return pd.DataFrame(rows, columns=columns)
 
 
+#: Where :func:`_warn_imbalances` files what it found, for the build to collect.
+IMBALANCE_CACHE_KEY = ("_graph_imbalances",)
+
+
+def collected_imbalances(ctx) -> pd.DataFrame:
+    """Every unbalanced node-year this context has seen, node column included.
+
+    ``_warn_imbalances`` logs one line per node as the pages are built, which is
+    exactly where nobody looks before publishing.  The build reads this instead
+    and writes it out once — see :func:`pypsa2html.build.report_graph_imbalances`.
+    """
+    columns = ["node", "year", "incoming", "outgoing", "gap"]
+    found = getattr(ctx, "_files", {}).get(IMBALANCE_CACHE_KEY) or {}
+    frames = [
+        frame.assign(region=region)[["region", *columns]]
+        for region, frame in found.items()
+        if frame is not None and not frame.empty
+    ]
+    if not frames:
+        return pd.DataFrame(columns=["region", *columns])
+    out = pd.concat(frames, ignore_index=True)
+    return out.reindex(out["gap"].abs().sort_values(ascending=False).index).reset_index(
+        drop=True
+    )
+
+
 def _warn_imbalances(ctx, node: str, flows: pd.DataFrame) -> None:
     """Log unbalanced Sankey nodes; never raises (the report still renders)."""
     imb = graph_imbalances(flows, ctx.taxonomy)
+    if hasattr(ctx, "_files"):
+        ctx._files.setdefault(IMBALANCE_CACHE_KEY, {})[str(node)] = imb
     if imb.empty:
         return
     parts = [
@@ -839,6 +867,19 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
     def fe_consumption() -> pd.DataFrame:
         return sum_by(flows, where="Source", nodes=fe, by="Source")
 
+    # -- 0. rural heat pumps exclude the agricultural share ----------------
+    # Agriculture heat is re-bused onto the rural heat load, so the rural
+    # heat-pump edge and the `pac_fe -> agr` edge describe the same ambient
+    # twice; the agricultural part is taken off the residential edge.
+    #
+    # This has to happen *before* step 3, which sets `pac_pe -> pac_fe` from
+    # what leaves `pac_fe`.  Run afterwards — as it was until 2026-09-07 — it
+    # shrinks the outflow after the inflow has been fixed, leaving `pac_fe`
+    # short by exactly the agricultural heat (BEWAL: 0.147 TWh, every horizon).
+    flows[("pac_fe", "res", "gr")] = column(flows, ("pac_fe", "res", "gr")) - column(
+        flows, ("pac_fe", "agr", "")
+    )
+
     # -- 1. deliveries from the networks to final use ----------------------
     fec = fe_consumption()
     for carrier in SE_TO_FE_CARRIERS:
@@ -960,10 +1001,9 @@ def _close_energy_graph(ctx, node: str, flows: pd.DataFrame) -> pd.DataFrame:
         flows[("imp", code, "")] = (demand - supply - electricity).clip(lower=0)
         flows[(code, "exp", "")] = (supply - demand - electricity).clip(lower=0)
 
-    # -- 10. rural heat pumps exclude the agricultural share ---------------
-    flows[("pac_fe", "res", "gr")] = column(flows, ("pac_fe", "res", "gr")) - column(
-        flows, ("pac_fe", "agr", "")
-    )
+    # -- 10. (was: rural heat pumps exclude the agricultural share) --------
+    # Moved to step 0 so the `pac_pe -> pac_fe` closure sees the corrected
+    # residential edge.
 
     return flows
 

@@ -10,6 +10,7 @@ legacy faceted panels (curated technology groups).
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -166,6 +167,20 @@ _PANEL_TITLES: dict[tuple[str, ...], str] = {
     ("onshore wind", "offshore wind"): "Wind",
 }
 
+#: Capacity panels drawn as one stacked bar per year rather than side-by-side
+#: bars.  Only PV: its three carriers are *additive* — they are the same fleet
+#: split by mounting, and the reader's first question is the Walloon PV total,
+#: which three separate bars force them to add by eye.  The other panels hold
+#: technologies that are alternatives to each other (onshore vs offshore wind,
+#: the three power-to-fuel routes competing for the same electricity), where a
+#: stack would invent a meaningless total.
+#:
+#: Capacity charts only.  Capacity *factors* are intensive: stacking three
+#: percentages would produce a number no technology has.  The utilisation
+#: panels also fold PV to a single ``solar`` bar (:data:`UTILISATION_FOLD`),
+#: so there is nothing to stack there in the first place.
+_STACKED_CAPACITY_PANELS: tuple[str, ...] = (_PANEL_TITLES[tuple(_SOLAR_PV)],)
+
 
 def _panel_title(techs: list[str]) -> str:
     title = _PANEL_TITLES.get(
@@ -206,6 +221,7 @@ def _faceted_capacity_chart(
     height: int = 800,
     fill_missing: bool = True,
     hover_fmt: str = "%{y:.3g}",
+    stacked_groups: Collection[str] = (),
 ) -> go.Figure | None:
     """Legacy-style capacity panels: one subplot per technology group.
 
@@ -216,6 +232,14 @@ def _faceted_capacity_chart(
     it: a zero-height *capacity* bar honestly says "none installed", while a
     zero-height *capacity factor* says "installed and never used" — the
     opposite of the truth.
+
+    ``stacked_groups`` names the panels — by their :func:`_panel_title` — whose
+    members stack into one bar per year instead of standing side by side.
+    Plotly's ``barmode`` is figure-wide, so the per-panel choice is made with
+    ``offsetgroup``: under ``barmode="relative"`` traces sharing an offsetgroup
+    stack, and traces with distinct offsetgroups each get their own slot, which
+    reproduces ``barmode="group"`` for every panel not listed.  Capacities are
+    non-negative, so ``relative`` and ``stack`` render identically here.
     """
     if table is None or table.empty:
         return None
@@ -242,6 +266,7 @@ def _faceted_capacity_chart(
     )
     palette = tech_color_map()
     any_trace = False
+    stacked = {str(name) for name in stacked_groups}
 
     for i, tech_group in enumerate(groups):
         if rows == 1:
@@ -249,6 +274,7 @@ def _faceted_capacity_chart(
         else:
             row_idx = 1 if i < cols else 2
             col_idx = i + 1 if i < cols else i - cols + 1
+        stack_panel = titles[i] in stacked
 
         for tech in _expand_capacity_group(tech_group, data.index):
             if tech in data.index:
@@ -264,6 +290,9 @@ def _faceted_capacity_chart(
                     name=_smart_capitalize(tech),
                     marker_color=resolve_tech_color(tech, palette),
                     hovertemplate=hover_fmt,
+                    # One slot for the whole panel when it stacks, one slot per
+                    # technology otherwise — see the docstring.
+                    offsetgroup=f"p{i}" if stack_panel else f"p{i}-{tech}",
                 ),
                 row=row_idx,
                 col=col_idx,
@@ -282,7 +311,7 @@ def _faceted_capacity_chart(
         font={"size": FONT_SIZE},
         legend={"font": {"size": FONT_SIZE}},
         margin={"l": 60, "r": 30, "t": 60, "b": 50},
-        barmode="group",
+        barmode="relative" if stacked else "group",
     )
     for r in range(1, rows + 1):
         for c in range(1, cols + 1):
@@ -312,7 +341,9 @@ def capacities_by_tech(ctx, node: str, section) -> go.Figure | None:
         if _study_wide_panels(ctx, node)
         else _POWER_GROUPS
     )
-    return _faceted_capacity_chart(table, groups, unit=section.unit)
+    return _faceted_capacity_chart(
+        table, groups, unit=section.unit, stacked_groups=_STACKED_CAPACITY_PANELS
+    )
 
 
 def storage_capacities(ctx, node: str, section) -> go.Figure | None:
@@ -372,6 +403,14 @@ def _aligned_utilisation(ctx, node: str, kind: str) -> pd.DataFrame | None:
     attributes them to the region they serve.  Rows the capacity chart does not
     carry are dropped here and logged; the reverse case (a capacity bar with no
     factor) stays as a gap.
+
+    The same alignment is applied *per year*: a technology the capacity chart
+    draws at (effectively) zero for a horizon gets no factor for that horizon.
+    ``utilisation_table`` already floors its own denominator, but the two charts
+    read different sources — the chart reads ``csvs/nodal_capacities.csv``, the
+    factor reads ``p_nom_opt`` on the solved network — so a technology can be
+    empty in one and degenerate-but-nonzero in the other.  The chart is what the
+    reader sees, so the chart decides.
     """
     # Two sections plot the same table; the network scan behind it is not free.
     cache_key = ("aligned_utilisation", node, kind)
@@ -396,6 +435,9 @@ def _compute_aligned_utilisation(ctx, node: str, kind: str) -> pd.DataFrame | No
     # utilisation table folds them back, so align on the *folded* capacity
     # index — otherwise the single "solar" factor has no matching row and the
     # chart loses solar entirely.
+    folded_capacities = capacities.groupby(
+        fold_utilisation_index(capacities.index), sort=False
+    ).sum()
     allowed = pd.Index(dict.fromkeys(fold_utilisation_index(capacities.index)))
     dropped = table.index.difference(allowed)
     if len(dropped):
@@ -406,8 +448,37 @@ def _compute_aligned_utilisation(ctx, node: str, kind: str) -> pd.DataFrame | No
             ", ".join(str(d) for d in dropped),
         )
     aligned = table.reindex(index=allowed)
+    aligned = _mask_invisible_capacity(ctx, node, kind, aligned, folded_capacities)
     aligned = aligned.loc[aligned.notna().any(axis=1)]
     return None if aligned.empty else aligned
+
+
+def _mask_invisible_capacity(
+    ctx, node: str, kind: str, aligned: pd.DataFrame, capacities: pd.DataFrame
+) -> pd.DataFrame:
+    """Blank the (technology, year) cells whose capacity bar is not there."""
+    floor = float(getattr(ctx.config.model, "utilisation_capacity_floor", 0.0) or 0.0)
+    if floor <= 0:
+        return aligned
+    installed = (
+        capacities.reindex(index=aligned.index, columns=aligned.columns)
+        .astype(float)
+        .fillna(0.0)
+        >= floor
+    )
+    hidden = aligned.notna() & ~installed
+    if hidden.to_numpy().any():
+        names = sorted({str(i) for i in aligned.index[hidden.any(axis=1)]})
+        logger.info(
+            "utilisation %s/%s: %d technology-year(s) under the %.3g MW capacity "
+            "floor on the capacity chart, factor suppressed: %s",
+            node,
+            kind,
+            int(hidden.to_numpy().sum()),
+            floor,
+            ", ".join(names),
+        )
+    return aligned.where(installed)
 
 
 def capacity_factors(ctx, node: str, section) -> go.Figure | None:

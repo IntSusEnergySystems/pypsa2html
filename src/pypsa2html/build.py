@@ -219,8 +219,44 @@ def build_scenario(
                 shared_done.add(page.id)
                 break
 
+    report_graph_imbalances(config, ctx, out_dir, scenario_name)
+
     report.seconds += time.perf_counter() - started
     return report
+
+
+def report_graph_imbalances(
+    config: Config, ctx: BuildContext, out_dir: Path, scenario_name: str
+) -> Path | None:
+    """Write the Sankey energy-conservation check next to the pages it describes.
+
+    Every node's imbalance is already logged as the pages are built, one line
+    per region, hundreds of lines into the build log.  That is not a safeguard
+    anyone reads before publishing: the 2026-09-06 Walloon run went to S3 with
+    ``elc_se`` short 9.3 TWh in 2050 and the warning sitting in the log.
+
+    So the whole check lands in one CSV beside the HTML, and the summary line is
+    emitted last, where the operator is already looking.  With
+    ``output.fail_on_graph_imbalance`` it raises instead.
+    """
+    from .indicators import collected_imbalances
+
+    imbalances = collected_imbalances(ctx)
+    if imbalances.empty:
+        return None
+    path = out_dir / "graph_imbalances.csv"
+    imbalances.to_csv(path, index=False, float_format="%.6f")
+    worst = imbalances.iloc[0]
+    message = (
+        f"{scenario_name}: {len(imbalances)} Sankey node-year(s) do not conserve "
+        f"energy, worst {worst['region']}/{worst['node']} {worst['year']} "
+        f"{worst['gap']:+.2f} TWh on {max(worst['incoming'], worst['outgoing']):.1f} "
+        f"TWh through the node — full list in {path}"
+    )
+    if config.output.fail_on_graph_imbalance:
+        raise ValueError(message)
+    logger.warning(message)
+    return path
 
 
 def build_site(

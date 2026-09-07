@@ -375,3 +375,29 @@ def test_bev_sankey_node_balances_with_natural_charging(indicator_ctx, year_colu
     natural = result.flows[("elc_se", "bev_se", "nat")].iloc[0]
     assert smart == pytest.approx(1.0)
     assert natural == pytest.approx(4.0)
+
+
+def test_ambient_heat_node_balances_when_agriculture_is_split_out(
+    indicator_ctx, year_columns
+):
+    """``pac_fe`` conserves energy even though agriculture is booked separately.
+
+    Agriculture heat is re-bused onto the rural heat load, so the rural
+    heat-pump edge and ``pac_fe -> agr`` describe the same ambient twice and the
+    agricultural part comes off the residential edge.  That correction used to
+    run *after* the ``pac_pe -> pac_fe`` closure had already totalled the
+    outflow, which left the node short by exactly the agricultural heat —
+    0.147 TWh on BEWAL, in every horizon of the 2026-09-06 run.
+    """
+    energy = _energy_table(
+        year_columns,
+        {"prespaccfta": 4.0, "prespaccfftt": 2.0, "presvapcfagr": 0.5},
+    )
+    result = _build(indicator_ctx, "BE", energy, _carbon_zeros(year_columns))
+    imb = indicators.graph_imbalances(
+        result.flows, indicator_ctx.taxonomy, atol=0.001, rtol=0.0
+    )
+    assert imb[imb["node"] == "pac_fe"].empty
+    # The correction still happened: 4.0 of rural ambient minus 0.5 agricultural.
+    assert result.flows[("pac_fe", "res", "gr")].iloc[0] == pytest.approx(3.5)
+    assert result.flows[("pac_pe", "pac_fe", "")].iloc[0] == pytest.approx(6.0)
