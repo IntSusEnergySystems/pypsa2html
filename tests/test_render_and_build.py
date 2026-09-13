@@ -130,6 +130,20 @@ def test_shared_page_link_omits_the_node_prefix(node_set, scenarios, minimal_con
     assert "BEWAL_maps" not in html
 
 
+def test_a_shared_page_does_not_claim_a_region(node_set, scenarios, minimal_config):
+    """One file serves every region, so naming one would attribute it wrongly."""
+    project = load_config(minimal_config).project
+    html = _render(node_set, scenarios, project, page_id="maps")
+    assert "<h1 style=\"margin-top:0\">Maps</h1>" in html
+    assert "Wallonia &mdash; Maps" not in html
+
+
+def test_a_per_node_page_still_names_its_region(node_set, scenarios, minimal_config):
+    project = load_config(minimal_config).project
+    html = _render(node_set, scenarios, project, page_id="emissions")
+    assert "Wallonia &mdash; Emissions" in html
+
+
 def test_section_body_escapes_the_title_but_not_the_chart():
     section = RenderedSection(id="x", title="A & B <script>", body="<div>chart</div>")
     html = section.to_html()

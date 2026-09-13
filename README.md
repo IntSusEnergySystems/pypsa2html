@@ -236,6 +236,50 @@ self_sufficiency(ctx, members=["BEWAL", "BEVLG", "BEBRU"])  # ad-hoc
 HTML report has a Belgium page. See
 [D18](docs/DESIGN_DECISIONS.md#d18--self-sufficiency-is-two-ratios-and-a-members-list).
 
+### Sensitivity analyses (parameter sweeps)
+
+A family of runs differing in a single number is **one curve, not N scenarios**.
+Mark each run on its own scenario entry and declare what the family means:
+
+```yaml
+scenarios:
+  - {name: central, results_dir: results/central}
+  - {name: nuc_4500, results_dir: results/nuc_4500, sensitivity: {sweep: nuclear_capex, value: 4500}}
+  - {name: nuc_6000, results_dir: results/nuc_6000, sensitivity: {sweep: nuclear_capex, value: 6000}}
+  - {name: nuc_9500, results_dir: results/nuc_9500, sensitivity: {sweep: nuclear_capex, value: 9500}}
+
+sensitivities:
+  - id: nuclear_capex
+    label: Nuclear investment cost
+    parameter: {label: Overnight cost of new nuclear, unit: EUR/kW}
+    nodes: [BEWAL]                 # default: nodes.focus
+    metrics:
+      - {table: capacity, kind: power, rows: [nuclear], label: Installed nuclear capacity}
+    description: "<p>Optional HTML above the chart.</p>"
+```
+
+A scenario carrying `sensitivity:` is a **sweep point**: no pages of its own, absent
+from the scenario dropdown and from the cross-scenario overview. Each sweep becomes
+one section (`sensitivity_<id>`) of the shared **Sensitivity analyses** page, with two
+views in a dropdown — the swept value on the x axis with one line per planning
+horizon, and the same numbers over time with one line per swept value. With no
+sweep declared the page does not exist.
+
+A metric names a table any PyPSA-Eur results tree produces:
+
+| `table` | `kind` / `field` | rows are | default unit |
+|---|---|---|---|
+| `capacity` | `power` · `storage` · `ccs` | grouped technology names | GW / GWh |
+| `cost` | `total` · `capital` · `marginal` · `clustered` | grouped technology names | EUR/year |
+| `indicator` | `field:` an `Indicators` frame (`ghg_sector`, `fec_carrier`, …) | taxonomy codes | — |
+
+`rows:` are summed; omit it to sum the whole table. A row the run did not build
+reads **zero** — a point on the curve. A point whose table is missing entirely
+reads *missing*, so the line breaks instead of dropping to the origin.
+
+`pypsa2html inspect` prints each sweep, its points and any that are unsolved. See
+[D22](docs/DESIGN_DECISIONS.md#d22--a-parameter-sweep-is-a-section-not-a-set-of-scenarios).
+
 ### Output
 
 One directory containing `index.html` (redirecting to the landing page) plus
@@ -276,7 +320,8 @@ pypsa2html/
 │   │   ├── results.py               costs, capacities, demands
 │   │   ├── dispatch.py  maps.py     time series, geographic maps
 │   │   ├── ev.py                    EV charging weeks + annual split
-│   │   └── scenario.py              multi-scenario overview
+│   │   ├── scenario.py              multi-scenario overview
+│   │   └── sensitivity.py           parameter sweeps (config-declared)
 │   ├── report/                    HTML assembly (jinja2 template + renderer)
 │   └── data/                      the packaged taxonomy — CSV + YAML
 └── tests/
@@ -363,6 +408,7 @@ nine files by hardcoded path that Snakemake therefore could not track.
 | Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | done, tested |
 | EV charging (natural vs smart, V2G) | `extract/ev` `charts/ev` | new, tested |
 | Self-sufficiency (primary energy, electricity) | `indicators` `charts/indicators` `charts/scenario` | new, tested |
+| Sensitivity analyses (parameter sweeps) | `config` `pages` `charts/sensitivity` | new, tested |
 
 ---
 

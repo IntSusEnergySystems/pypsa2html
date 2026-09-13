@@ -61,7 +61,10 @@ output:
   # scenario's own results (csvs/, graphs/, networks/) and the cross-scenario
   # links become relative paths. Without it, all scenarios share one folder.
   dir: "{scenario}/html"
-  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  # `sensitivity` carries the parameter sweeps and disappears when none are
+  # declared. A project that pins this list before adding sweeps gets it
+  # appended automatically rather than silently losing the page.
+  pages: [overview, sensitivity, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true     # one maps page for the whole site, not one per node
   plotly: cdn           # 'cdn' (small pages, needs network) or 'inline' (offline)
   chart_data: true      # also write ChartData_<node>.xlsx
@@ -97,3 +100,39 @@ features:
   nuclear_primary: uranium
 
 scenarios: []
+
+# Parameter sweeps -- families of runs that differ in a single number.
+#
+# A sweep is NOT a set of scenarios: six runs at six investment costs answer
+# one question, and the answer is a curve. The runs are declared as ordinary
+# `scenarios:` entries carrying a marker:
+#
+#   scenarios:
+#     - name: run_nuc_4500
+#       results_dir: results/run_nuc_4500
+#       sensitivity: {sweep: nuclear_capex, value: 4500}
+#
+# A scenario with that marker is a sweep *point*: it gets no pages, it is
+# absent from the scenario dropdown and from the cross-scenario overview, and
+# it feeds the section below instead.
+#
+# Each entry becomes one section (id `sensitivity_<id>`) on the `sensitivity`
+# page, switchable under `plots:` and annotatable under `texts:` like any
+# other.
+#
+#   sensitivities:
+#     - id: nuclear_capex            # letters/digits/underscores; the anchor
+#       label: Nuclear investment cost
+#       parameter: {label: Overnight cost of new nuclear, unit: EUR/kW}
+#       nodes: [BEWAL]               # region(s) read; default: nodes.focus
+#       description: "<p>Shown above the chart.</p>"
+#       metrics:
+#         # table: capacity (kind: power|storage|ccs)
+#         #        cost     (kind: total|capital|marginal|clustered)
+#         #        indicator(field: an Indicators DataFrame, e.g. ghg_sector)
+#         # rows:  row labels to sum; omitted = the whole table.  A row the run
+#         #        does not carry reads zero.
+#         # unit/scale default from the table (MW capacity is plotted in GW).
+#         - {table: capacity, kind: power, rows: [nuclear],
+#            label: Installed nuclear capacity, unit: GW}
+sensitivities: []

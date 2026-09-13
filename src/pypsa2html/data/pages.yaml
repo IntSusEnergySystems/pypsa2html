@@ -31,6 +31,20 @@ pages:
       - {id: scenario_cc,            title: CCS capacities (fuel input),     builder: scenario.cc_capacities,        unit: GW}
       - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%'}
 
+  # Parameter sweeps. Sections are GENERATED from the project config's
+  # `sensitivities:` block -- one per sweep -- so this page carries none of
+  # its own. With no sweep declared it has no sections and drops out of the
+  # site, which is what a report without sensitivities should look like.
+  #
+  # A sweep answers one question over a family of runs that differ in a single
+  # number, and it reads the same regardless of which region page you arrived
+  # from, so the region is pinned in the config and the page is shared.
+  - id: sensitivity
+    title: Sensitivity analyses
+    kind: sensitivity
+    shared: true
+    sections: []
+
   - id: emissions
     title: Emissions
     sections:

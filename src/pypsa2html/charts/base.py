@@ -134,6 +134,28 @@ _CARRIER_EXACT_RENAME = {
 }
 
 
+#: Distinct colours for series that are *alternatives* rather than parts of a
+#: whole -- scenarios, sweep points, planning horizons.  The taxonomy palette
+#: does not apply to them: they are not technologies.
+SERIES_COLORS: tuple[str, ...] = (
+    "#01889f",
+    "#11875d",
+    "#c14a09",
+    "#9a0200",
+    "#fcc006",
+    "#95d0fc",
+    "#fd5956",
+)
+
+
+def series_palette(labels: Sequence) -> dict[str, str]:
+    """Stable colour per label, cycling :data:`SERIES_COLORS`."""
+    return {
+        str(label): SERIES_COLORS[i % len(SERIES_COLORS)]
+        for i, label in enumerate(labels)
+    }
+
+
 def normalize_carrier(label: str) -> str:
     """Normalise a PyPSA carrier label (legacy ``rename_techs``)."""
     name = str(label)

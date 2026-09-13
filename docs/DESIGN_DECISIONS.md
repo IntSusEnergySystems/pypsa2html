@@ -671,3 +671,63 @@ close.
 
 **Reversibility: Easy** — the two extraction changes are local to
 `_heat_pump_rows` and the last line of `_aggregate_carriers`.
+
+---
+
+## D22 — A parameter sweep is a section, not a set of scenarios
+
+**Decided.** A scenario entry may carry a `sensitivity: {sweep: <id>, value: <x>}`
+marker. A scenario that carries one is a *sweep point*: it gets no pages, never
+appears in the scenario dropdown, and is excluded from the cross-scenario
+overview. It feeds one generated section of the `sensitivity` page, declared
+under a top-level `sensitivities:` block.
+
+Six runs that differ only in the investment cost of one technology answer a
+single question — how does the system respond to that number — and the answer
+is a curve, not six dashboards. Listing them as scenarios costs twice: six
+near-identical entries bury the scenarios that genuinely differ, and every
+cross-scenario chart gains six bars whose *cost* axis is not comparable,
+because the swept input typically reprices existing assets too (pypsa-wal
+2026-09-13: the nuclear CAPEX sweep also reprices the annuitised Tihange fleet,
+visible already at 2025 where capacity is pinned yet the objective still moves).
+
+**Why the marker sits on the scenario, not in the sweep.** A sweep could have
+listed its members (`points: [{scenario: run_a, value: 4500}, …]`). Keeping the
+value next to the `results_dir` it was produced from means a point cannot be
+renamed into the wrong position on the x axis, and a results tree that moves
+carries its own coordinate with it. The cost is one cross-reference check at
+load time, which is explicit: an undeclared sweep id, a sweep with no points
+and two points at the same value are all errors, because each of them is
+otherwise a silently missing or doubled marker on a published curve.
+
+**Why sections are generated rather than listed in `pages.yaml`.** "How does X
+respond to Y" is a project question, so the packaged manifest cannot name it.
+But a sweep produces an ordinary `Section` — id `sensitivity_<sweep id>`,
+builder `sensitivity.sweep`, the sweep id in `Section.params` — so the anchor,
+the TOC entry, the `plots:` toggle and the `texts:` narrative all work exactly
+as for a packaged section, with no second code path. With no sweep declared the
+page has no sections and drops out of the site (D5's empty-page rule).
+
+**Why the region is pinned in the config.** The sweep page is `shared: true`:
+one file for the whole site, reading the region named in the sweep's `nodes:`
+(default `nodes.focus`). Following the region selector instead would re-point
+the question at, say, French nuclear the moment a reader changed a dropdown,
+and would drop the section — and with it the page every other page links to —
+for any region where the metric happens to be zero.
+
+**What a metric can read.** `table: capacity|cost|indicator`, a `kind` (or an
+`indicator` frame name), and `rows:` selecting table rows to sum. A row the run
+did not build reads **zero**, which is a point on the curve; a point whose
+whole table is missing reads *missing*, so the line breaks rather than
+inventing a result at the origin. Units and scale default from the table, so a
+MW capacity table is plotted in GW without the config saying so.
+
+| | Pro | Con |
+|---|---|---|
+| **Marker + generated section (chosen)** | Sweeps are visible without polluting the scenario set; one code path for sections | Two config places to keep consistent — checked at load |
+| *Sweep points as ordinary scenarios* | No new concept | Buries the real scenarios; invites incomparable cost reads |
+| *A `points:` list inside the sweep* | One place to read the sweep | A point's value lives away from its results tree |
+| *Sweeps in a separate config file* | Report config stays small | The points are scenarios; splitting them splits the path resolution |
+
+**Reversibility: Easy** — deleting `sensitivities:` and the markers restores the
+previous behaviour exactly; the sweep points become ordinary scenarios again.

@@ -163,6 +163,26 @@ Builders must:
 - read the unit from `section.unit`, not a literal;
 - raise nothing for missing inputs; return `None` and log a warning.
 
+### Sections generated from the config
+
+Most sections come from `data/pages.yaml`. The sensitivity page's do not: one
+per entry of the project's `sensitivities:` block (D22), built by
+`pages.sensitivity_sections`. They are ordinary `Section` objects, so nothing
+downstream branches on their origin — the difference is `Section.params`, a
+small dict of builder arguments (`{"sweep": "<id>"}`) that a generated section
+carries and a packaged one leaves empty.
+
+A builder reading `section.params` must fail loudly when the key is missing:
+an empty `params` means the section was declared in `pages.yaml` by mistake,
+which is a configuration error, not a missing input.
+
+A builder on a page marked `shared: true` receives whichever node was built
+first and must not use it to select data — one file serves every region. Pin
+the region in the config (`nodes:` on the sweep) and return an `Html` note
+rather than `None` when there is nothing to draw: a shared page dropped for
+lack of content leaves the nav entry that every other page already rendered
+pointing at nothing.
+
 ## 5. Page assembly (`pypsa2html/report/render.py`)
 
 `build.py` walks the manifest, calls each builder, wraps the result in a

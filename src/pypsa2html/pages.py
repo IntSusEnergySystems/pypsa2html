@@ -20,6 +20,10 @@ import yaml
 
 MANIFEST_PATH = Path(__file__).parent / "data" / "pages.yaml"
 
+#: ``kind`` of the page whose sections come from the config rather than the
+#: manifest: one per declared parameter sweep.  See :func:`load_manifest`.
+GENERATED_KIND = "sensitivity"
+
 #: Which nodes a section applies to.
 SCOPES = frozenset({"all", "real", "aggregate"})
 
@@ -32,6 +36,10 @@ class Section:
     unit: str = ""
     enabled: bool = True
     scope: str = "all"
+    #: Builder arguments for sections generated from the config (which sweep a
+    #: sensitivity section plots).  Excluded from ``__eq__``/``__hash__`` so a
+    #: frozen Section stays hashable.
+    params: dict = field(default_factory=dict, compare=False)
 
     def applies_to(self, node) -> bool:
         if self.scope == "all":
@@ -81,11 +89,41 @@ class Manifest:
         return [s.id for p in self.pages for s in p.sections]
 
 
+def sensitivity_sections(sweeps, *, enable: dict[str, bool] | None = None) -> list[Section]:
+    """One section per declared parameter sweep.
+
+    These are the only sections the *config* contributes.  A sweep is a
+    project-level object -- "how does X respond to Y" -- so it cannot be listed
+    in the packaged manifest, but everything downstream (anchor, TOC entry,
+    ``plots:`` toggle, ``texts:`` narrative) works exactly as for a packaged
+    section because a sweep produces a perfectly ordinary :class:`Section`.
+    """
+    enable = dict(enable or {})
+    out: list[Section] = []
+    for sweep in sweeps or []:
+        if not enable.get(sweep.section_id, True):
+            continue
+        units = {m.unit for m in sweep.metrics if m.unit}
+        out.append(
+            Section(
+                id=sweep.section_id,
+                title=sweep.label,
+                builder="sensitivity.sweep",
+                unit=units.pop() if len(units) == 1 else "",
+                enabled=True,
+                scope="all",
+                params={"sweep": sweep.id},
+            )
+        )
+    return out
+
+
 def load_manifest(
     *,
     path: str | Path | None = None,
     enable: dict[str, bool] | None = None,
     include_pages: list[str] | None = None,
+    sensitivities=None,
 ) -> Manifest:
     """Load the manifest, apply per-section toggles and page selection.
 
@@ -93,20 +131,30 @@ def load_manifest(
     A key that matches no section is an error -- in the legacy tool a misspelled
     ``plots.yaml`` key silently did nothing (and ``Cummulative``/``Comaprison``
     misspellings became load-bearing as a result).
+
+    ``sensitivities`` is the project's list of parameter sweeps
+    (:class:`~pypsa2html.config.SensitivityConfig`).  Each becomes one section
+    of the page marked ``kind: sensitivity``; with none declared that page has
+    no sections and drops out of the site entirely, which is what a report
+    without sweeps should look like.
     """
     with open(path or MANIFEST_PATH) as f:
         raw = yaml.safe_load(f) or {}
 
     enable = dict(enable or {})
-    all_section_ids: set[str] = set()
+    generated = sensitivity_sections(sensitivities, enable=enable)
+    all_section_ids: set[str] = {s.section_id for s in (sensitivities or [])}
     pages: list[Page] = []
 
     for page_raw in raw.get("pages", []):
-        sections = []
+        sections = list(generated) if page_raw.get("kind") == GENERATED_KIND else []
         for s in page_raw.get("sections", []):
             sid = s["id"]
             if sid in all_section_ids:
-                raise ValueError(f"duplicate section id {sid!r} in the page manifest")
+                raise ValueError(
+                    f"duplicate section id {sid!r}: it is defined twice in the page "
+                    "manifest, or a 'sensitivities:' id collides with a packaged section"
+                )
             all_section_ids.add(sid)
             scope = s.get("scope", "all")
             if scope not in SCOPES:

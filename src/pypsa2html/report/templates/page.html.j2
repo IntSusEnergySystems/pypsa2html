@@ -16,7 +16,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ project.name }} &ndash; {{ node.label }} &ndash; {{ page.title }}</title>
+{# A shared page (maps, sensitivity sweeps) is the same file for every
+   region, so naming one in its heading would attribute its content to
+   whichever node happened to be built first. #}
+<title>{{ project.name }}{% if not page.shared %} &ndash; {{ node.label }}{% endif %} &ndash; {{ page.title }}</title>
 {% if plotly_js %}{{ plotly_js }}{% endif %}
 <style>
 :root {
@@ -124,7 +127,7 @@ footer.p2h-foot { max-width:1500px; margin:0 auto; padding:1rem 1.2rem 3rem;
   </aside>
 
   <div>
-    <h1 style="margin-top:0">{{ node.label }} &mdash; {{ page.title }}</h1>
+    <h1 style="margin-top:0">{% if not page.shared %}{{ node.label }} &mdash; {% endif %}{{ page.title }}</h1>
     {% if scenario_note %}<p class="p2h-desc">{{ scenario_note }}</p>{% endif %}
     {{ main_content }}
   </div>

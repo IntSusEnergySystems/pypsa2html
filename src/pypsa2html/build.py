@@ -124,7 +124,7 @@ def _scenario_prefixes(config: Config, current: str) -> dict[str, str]:
     """
     here = config.output_dir(current)
     prefixes = {}
-    for scenario in config.scenarios:
+    for scenario in config.report_scenarios:
         there = config.output_dir(scenario.name)
         if there == here:
             prefixes[scenario.name] = ""
@@ -159,7 +159,9 @@ def build_scenario(
         # Shared across scenario_contexts() so overview reuses extractions.
         ctx._files[("_context_pool",)] = context_pool
     manifest = manifest or load_manifest(
-        enable=config.plots, include_pages=config.output.pages
+        enable=config.plots,
+        include_pages=config.output.pages,
+        sensitivities=config.sensitivities,
     )
     if only_pages:
         unknown = [p for p in only_pages if p not in manifest.ids]
@@ -177,7 +179,11 @@ def build_scenario(
     for page in manifest:
         if write_ids is not None and page.id not in write_ids:
             continue
-        shared = page.shared and config.output.shared_maps
+        # `output.shared_maps` chooses between one maps page for the site and
+        # one per node (the per-node variant outlines the selected region).  A
+        # shared page with no per-node variant at all -- the sensitivity sweeps,
+        # whose region is pinned in the config -- is always written once.
+        shared = page.shared and (config.output.shared_maps or page.id != "maps")
         for node in ctx.nodes:
             if shared and page.id in shared_done:
                 continue
@@ -205,7 +211,7 @@ def build_scenario(
                 node=node,
                 nodes=ctx.nodes,
                 scenario=ctx.scenario,
-                scenarios=config.scenarios,
+                scenarios=config.report_scenarios,
                 project=config.project,
                 plotly=config.output.plotly,
                 scenario_prefixes=scenario_prefixes,
@@ -273,9 +279,13 @@ def build_site(
     clear_map_png_cache()
     report = BuildReport()
     manifest = manifest or load_manifest(
-        enable=config.plots, include_pages=config.output.pages
+        enable=config.plots,
+        include_pages=config.output.pages,
+        sensitivities=config.sensitivities,
     )
-    names = scenarios or config.scenario_names
+    # Sweep points have no pages of their own: they are six readings of one
+    # curve, drawn by the sensitivity section from the same config.
+    names = scenarios or config.report_scenario_names
     # One BuildContext per scenario for the whole site: overview pages and
     # later scenario builds share extractions and loaded networks.
     context_pool: dict[str, BuildContext] = {}

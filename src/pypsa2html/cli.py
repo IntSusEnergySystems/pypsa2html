@@ -96,7 +96,11 @@ def main(argv: list[str] | None = None) -> int:
         from .context import build_context
         from .pages import load_manifest
 
-        manifest = load_manifest(enable=config.plots, include_pages=config.output.pages)
+        manifest = load_manifest(
+            enable=config.plots,
+            include_pages=config.output.pages,
+            sensitivities=config.sensitivities,
+        )
         print(f"project   : {config.project.name}")
         print(f"root      : {config.root}")
         if config.output_is_per_scenario:
@@ -106,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"output    : {config.output_dir()}")
         print(f"landing   : {config.landing.node or config.nodes.focus} / "
               f"{config.landing_scenario.name} / {config.landing.page}")
-        for scenario in config.scenarios:
+        for scenario in config.report_scenarios:
             print(f"\nscenario '{scenario.name}' ({scenario.label})")
             try:
                 ctx = build_context(config, scenario.name)
@@ -118,6 +122,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    horizons : {ctx.horizons}")
             print(f"    nodes    : {', '.join(f'{n.code}({n.label})' for n in ctx.nodes)}")
             print(f"    focus    : {ctx.nodes.focus}")
+        for sweep in config.sensitivities:
+            points = config.sweep_points(sweep.id)
+            values = ", ".join(p.sensitivity.label for p in points)
+            print(f"\nsensitivity '{sweep.id}' ({sweep.label})")
+            print(f"    parameter: {sweep.parameter.label} [{sweep.parameter.unit}]")
+            print(f"    nodes    : {', '.join(sweep.nodes) or config.nodes.focus}")
+            print(f"    metrics  : {', '.join(m.label for m in sweep.metrics)}")
+            print(f"    points   : {len(points)} ({values})")
+            missing = [
+                p.name for p in points if not config.results_dir(p.name).exists()
+            ]
+            if missing:
+                print(f"    UNSOLVED : {', '.join(missing)}")
+
         print(f"\npages: {len(manifest)}")
         for page in manifest:
             print(f"    {page.id:12s} {len(page.sections):2d} section(s)"

@@ -22,6 +22,7 @@ from .base import (
     area_chart,
     combine_charts,
     ghg_area_chart,
+    series_palette,
     stacked_bar,
     strip_markup,
     tech_color_map,
@@ -34,10 +35,14 @@ _CAPACITY_SCALE = 1e-3
 
 
 def scenario_contexts(ctx) -> dict[str, BuildContext]:
-    """Build/cache a :class:`BuildContext` per configured scenario.
+    """Build/cache a :class:`BuildContext` per *browsable* scenario.
 
     Returns a mapping of scenario *label* -> context.  Scenarios whose
-    ``results_dir`` is absent are skipped with a warning.
+    ``results_dir`` is absent are skipped with a warning, and so are parameter
+    sweep points (``sensitivity:`` in the config): six runs differing in one
+    number would add six near-identical bars to every comparison and bury the
+    scenarios that genuinely differ.  They are read by ``charts.sensitivity``
+    instead.
 
     When the site build has installed a shared context pool on ``ctx``
     (see :func:`pypsa2html.build.build_site`), contexts are reused across
@@ -49,7 +54,11 @@ def scenario_contexts(ctx) -> dict[str, BuildContext]:
         return cached
 
     config = getattr(ctx, "config", None)
-    scenario_list = getattr(config, "scenarios", None) if config is not None else None
+    scenario_list = (
+        getattr(config, "report_scenarios", None) if config is not None else None
+    )
+    if scenario_list is None and config is not None:
+        scenario_list = getattr(config, "scenarios", None)
     if not scenario_list:
         logger.warning("no scenarios configured; scenario comparison skipped")
         ctx._files[key] = {}
@@ -86,16 +95,7 @@ def scenario_contexts(ctx) -> dict[str, BuildContext]:
 
 def _scenario_palette(labels: list[str]) -> dict[str, str]:
     """Distinct colours for scenario series (copied defaults, never mutated)."""
-    defaults = [
-        "#01889f",
-        "#11875d",
-        "#c14a09",
-        "#9a0200",
-        "#fcc006",
-        "#95d0fc",
-        "#fd5956",
-    ]
-    return {label: defaults[i % len(defaults)] for i, label in enumerate(labels)}
+    return series_palette(labels)
 
 
 def _grouped_bar(
