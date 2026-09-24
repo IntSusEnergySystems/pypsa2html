@@ -252,6 +252,58 @@ def test_nuclear_primary_electricity_books_kwh_as_domestic(
     assert (delta.fillna(0) > 0).any()
 
 
+def _with_nuclear_mode(indicator_ctx, mode):
+    ctx = deepcopy(indicator_ctx)
+    ctx.config = type(
+        "Config",
+        (),
+        {
+            "project": indicator_ctx.config.project,
+            "model": indicator_ctx.config.model,
+            "output": indicator_ctx.config.output,
+            "raw": {},
+            "features": type("Features", (), {"nuclear_primary": mode})(),
+        },
+    )()
+    return ctx
+
+
+def test_nuclear_primary_electricity_import_keeps_the_kwh_on_the_import_side(
+    indicator_ctx, energy_flows_be, carbon_flows_be
+):
+    """The two levers -- magnitude and origin -- have to be separable.
+
+    ``electricity`` moves both at once: it sizes nuclear by its output *and*
+    calls that output domestic, which roughly doubles a nuclear region's
+    headline independence. ``electricity_import`` moves only the first, so it
+    has to land strictly between ``uranium`` and ``electricity`` -- above the
+    first because the thermal losses leave the denominator, below the second
+    because the kWh are still an import.
+    """
+    fuel = _build(indicator_ctx, "BE", energy_flows_be, carbon_flows_be)
+    domestic = _build(_with_nuclear_mode(indicator_ctx, "electricity"), "BE",
+                      energy_flows_be, carbon_flows_be)
+    imported = _build(_with_nuclear_mode(indicator_ctx, "electricity_import"), "BE",
+                      energy_flows_be, carbon_flows_be)
+
+    fuel_r = fuel.self_sufficiency.ratio["primary"].fillna(0)
+    dom_r = domestic.self_sufficiency.ratio["primary"].fillna(0)
+    imp_r = imported.self_sufficiency.ratio["primary"].fillna(0)
+    assert (imp_r >= fuel_r - 1e-9).all()
+    assert (imp_r <= dom_r + 1e-9).all()
+    assert (imp_r < dom_r - 1e-9).any()
+
+    # Same denominator as the domestic variant -- only the split moves.
+    dom_total = domestic.self_sufficiency.primary.sum(axis=1)
+    imp_total = imported.self_sufficiency.primary.sum(axis=1)
+    pd.testing.assert_series_equal(dom_total, imp_total, check_names=False)
+    # Domestic supply is untouched by the import variant.
+    pd.testing.assert_series_equal(
+        fuel.self_sufficiency.primary["domestic"],
+        imported.self_sufficiency.primary["domestic"],
+    )
+
+
 def test_nuclear_primary_rejects_unknown_mode(indicator_ctx):
     ctx = deepcopy(indicator_ctx)
     ctx.config = type(

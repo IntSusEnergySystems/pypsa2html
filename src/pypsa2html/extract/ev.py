@@ -9,6 +9,15 @@ each there is:
     electricity bus**, so the optimiser cannot move it: plugging in when you
     get home is not a decision the model makes.
 
+*Local charging*
+    Also pinned, and on the same bus, but following a *different* observed
+    profile: charging steered behind the meter by a home tariff or by PV
+    self-consumption, rather than by the market.  A fork that blends it into the
+    natural-charging load can publish the blend weights (see
+    :data:`MODE_SPLIT_FILE`) and get it reported separately; without that file
+    the two are reported together as natural charging, which is what every
+    upstream model does.
+
 *Smart (optimised) charging*
     A charger Link into a fleet-battery bus, behind which a Store lets the
     optimiser move energy in time within an availability envelope.  Its
@@ -27,7 +36,7 @@ the *topology* rather than carrier names:
 any Link whose ``bus1`` is a fleet bus  charging (grid → fleet)
 any Link whose ``bus0`` is a fleet bus  discharging (fleet → grid, i.e. V2G)
 any Load **on** a fleet bus             driving demand of the optimised fleet
-any EV Load **not** on a fleet bus      natural charging, pinned in time
+any EV Load **not** on a fleet bus      uncontrolled charging, pinned in time
 any Store on a fleet bus                the fleet battery
 ======================================  ==========================================
 
@@ -35,9 +44,14 @@ That matters in practice: the same carrier is spelled ``EV charger`` upstream
 and in négaWatt but ``BEV charger`` in pypsa-wal, and matching on the name
 alone silently produced an empty chart on one of the two.
 
+Topology cannot separate natural from local charging, because both are pinned
+loads on the same bus and a fork is free to blend them into one component.  That
+one split therefore comes from a published file rather than from the network —
+:data:`MODE_SPLIT_FILE`, optional, absent everywhere but pypsa-wal.
+
 Sign convention: every series returned here is **grid-side and positive when
-the grid is being drawn from**, so ``NET = NATURAL + SMART + V2G`` with ``V2G``
-carried as a negative number.  Values are MW; charts convert to GW.
+the grid is being drawn from**, so ``NET = NATURAL + LOCAL + SMART + V2G`` with
+``V2G`` carried as a negative number.  Values are MW; charts convert to GW.
 """
 
 from __future__ import annotations
@@ -64,14 +78,23 @@ EV_LOAD_PATTERN = r"(?i)\bev\b"
 #: Column labels of :attr:`EVCharging.frame`.  Also the palette keys in
 #: ``data/tech_colors.csv`` and the legend entries of the chart.
 NATURAL = "Natural charging"
+LOCAL = "Local charging"
 SMART = "Smart charging"
 V2G = "V2G to grid"
 NET = "Net EV grid draw"
 COUNTERFACTUAL = "If charged naturally"
 DELIVERED = "Delivered to vehicles"
 
-#: Grid-draw columns whose signed sum is :data:`NET`.
-MODES = (NATURAL, SMART, V2G)
+#: Grid-draw columns whose signed sum is :data:`NET`.  :data:`LOCAL` is carved
+#: out of :data:`NATURAL` when the model publishes a mode split, so the sum is
+#: the same either way (see :func:`_split_uncontrolled`).
+MODES = (NATURAL, LOCAL, SMART, V2G)
+
+#: Resources file a fork may publish to separate the two *uncontrolled* modes
+#: that share one load in the network.  ``{clusters}`` and ``{horizon}`` are
+#: filled from the report config; the file carries a ``(mode, node)`` column
+#: header with modes ``natural`` and ``local``.
+MODE_SPLIT_FILE = "ev_charging_mode_split_s_{clusters}_{horizon}.csv"
 
 
 @dataclass(frozen=True)
@@ -105,8 +128,9 @@ class EVComponents:
 class EVCharging:
     """Grid-side EV profiles for one node, horizon and time window.
 
-    ``frame`` holds :data:`NATURAL`, :data:`SMART`, :data:`V2G`, :data:`NET`
-    and (when derivable) :data:`COUNTERFACTUAL`, in MW.
+    ``frame`` holds :data:`NATURAL`, :data:`LOCAL`, :data:`SMART`, :data:`V2G`,
+    :data:`NET` and (when derivable) :data:`COUNTERFACTUAL`, in MW.
+    :data:`LOCAL` is all-zero unless the model published a charging-mode split.
     """
 
     frame: pd.DataFrame
@@ -251,34 +275,45 @@ def charging_profiles(
         )
         return None
 
-    natural = _load_power(n, components.natural_loads)
+    uncontrolled = _load_power(n, components.natural_loads)
+    natural, local = _split_uncontrolled(
+        ctx, n, horizon, components, ctx.resolver(horizon), uncontrolled
+    )
     smart = _link_power(n, components.charge_links, "p0")
     # ``p1`` is negative when a link delivers to bus1, so a V2G link returning
     # energy to the grid already carries the grid-side sign we want.
     v2g = _link_power(n, components.v2g_links, "p1")
-    delivered = _load_power(n, components.flexible_loads) + natural
+    delivered = _load_power(n, components.flexible_loads) + uncontrolled
     soc = _state_of_charge(n, components.stores)
     weights = n.snapshot_weightings.generators.astype(float)
 
     if start is not None or stop is not None:
+        uncontrolled = uncontrolled.loc[start:stop]
         natural = natural.loc[start:stop]
+        local = local.loc[start:stop]
         smart = smart.loc[start:stop]
         v2g = v2g.loc[start:stop]
         delivered = delivered.loc[start:stop]
         weights = weights.loc[start:stop]
         soc = None if soc is None else soc.loc[start:stop]
 
-    if not len(natural):
+    if not len(uncontrolled):
         logger.warning(
             "EV window is empty for node %s horizon %s (start=%s stop=%s)",
             node, horizon, start, stop,
         )
         return None
 
-    frame = pd.DataFrame({NATURAL: natural, SMART: smart, V2G: v2g})
+    frame = pd.DataFrame({NATURAL: natural, LOCAL: local, SMART: smart, V2G: v2g})
     frame[NET] = frame[list(MODES)].sum(axis=1)
 
-    shape, shape_source = _natural_shape(natural, delivered - natural, components)
+    # The counterfactual stays on the *whole* uncontrolled profile: it answers
+    # "what if none of this were steered by the market", which is the question
+    # the dashed line has always been drawn for, and splitting the baseline
+    # would make it a different comparison.
+    shape, shape_source = _natural_shape(
+        uncontrolled, delivered - uncontrolled, components
+    )
     counterfactual = _counterfactual(shape, frame[NET], weights)
     if counterfactual is not None:
         frame[COUNTERFACTUAL] = counterfactual
@@ -291,6 +326,136 @@ def charging_profiles(
         shape_source=shape_source,
         components=components,
     )
+
+
+def _split_uncontrolled(
+    ctx: BuildContext,
+    n,
+    horizon: int,
+    components: EVComponents,
+    resolver,
+    uncontrolled: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    """Separate the uncontrolled EV load into natural and local charging.
+
+    Both modes are pinned loads on the same electricity bus, and a fork is free
+    to merge them into one component -- pypsa-wal does, blending Elia's ``V0``
+    curve with its ``V1H``/``V2H`` ones.  The blend is linear with published
+    weights, so :data:`MODE_SPLIT_FILE` carries the two shape components and the
+    load is split in their ratio, snapshot by snapshot.
+
+    Returns ``(natural, local)`` in MW.  Without the file -- upstream PyPSA-Eur,
+    négaWatt, or a pypsa-wal tree built before the file existed -- ``local`` is
+    zero and ``natural`` carries everything, exactly as before.
+    """
+    zeros = pd.Series(0.0, index=uncontrolled.index)
+    loads = components.natural_loads
+    if not len(loads):
+        return uncontrolled, zeros
+
+    share = _mode_split_shares(ctx, horizon, n.snapshots)
+    if share is None:
+        return uncontrolled, zeros
+
+    nodes = resolver.bus_nodes(n.loads.loc[loads, "bus"])
+    natural = zeros.copy()
+    unsplit = []
+    for name, location in nodes.items():
+        series = _load_power(n, pd.Index([name]))
+        if location not in share.columns:
+            unsplit.append(name)
+            natural = natural + series
+            continue
+        natural = natural + series * share[location]
+    if unsplit:
+        # Reported as natural, which is what the whole load was before: a mode
+        # this model does not describe must not silently disappear from a bar.
+        logger.warning(
+            "no charging-mode split published for %s; reported as %s",
+            ", ".join(sorted(unsplit)),
+            NATURAL,
+        )
+    return natural, uncontrolled - natural
+
+
+def _mode_split_shares(
+    ctx: BuildContext,
+    horizon: int,
+    snapshots: pd.Index,
+) -> pd.DataFrame | None:
+    """Natural share of the uncontrolled load per node, on ``snapshots``."""
+    clusters = getattr(getattr(ctx.config, "model", None), "clusters", None)
+    read_csv = getattr(ctx, "read_csv", None)
+    if clusters is None or read_csv is None:
+        return None
+    raw = read_csv(
+        MODE_SPLIT_FILE.format(clusters=clusters, horizon=horizon),
+        base="resources",
+        index_col=0,
+        header=[0, 1],
+        parse_dates=True,
+    )
+    if raw is None:
+        return None
+    modes = set(raw.columns.get_level_values(0))
+    if not {"natural", "local"} <= modes:
+        logger.warning(
+            "charging-mode split for %s has modes %s, expected natural and local",
+            horizon,
+            sorted(modes),
+        )
+        return None
+    natural, local = raw["natural"], raw["local"]
+    total = natural + local
+    share = (natural / total).where(total > 0)
+    share = _align_to_snapshots(share, snapshots, weights=total)
+    if share is None:
+        return None
+    if share.isna().any().any():
+        logger.warning(
+            "charging-mode split for %s does not cover every snapshot; ignored",
+            horizon,
+        )
+        return None
+    return share.clip(0.0, 1.0)
+
+
+def _align_to_snapshots(
+    share: pd.DataFrame,
+    snapshots: pd.Index,
+    *,
+    weights: pd.DataFrame,
+) -> pd.DataFrame | None:
+    """Put an hourly share on ``snapshots``, averaging blocks by ``weights``.
+
+    A run solved at 6 h keeps one snapshot per block, so the share of that block
+    is the *energy-weighted* mean of its hours -- weighting by the load shape
+    itself, since that is what the share will be multiplied by.
+    """
+    index = share.index
+    if not isinstance(index, pd.DatetimeIndex):
+        return None
+    if getattr(index, "tz", None) is not None and getattr(snapshots, "tz", None) is None:
+        index = index.tz_convert("UTC").tz_localize(None)
+        share, weights = share.set_axis(index), weights.set_axis(index)
+    if index.equals(snapshots):
+        return share
+    if len(index) < len(snapshots):
+        logger.warning(
+            "charging-mode split has %d rows against %d snapshots; ignored",
+            len(index),
+            len(snapshots),
+        )
+        return None
+    block = snapshots.searchsorted(index, side="right") - 1
+    inside = block >= 0
+    if not inside.any():
+        return None
+    keys = pd.Index(snapshots[block[inside]])
+    inner = weights[inside]
+    numerator = (share[inside] * inner).groupby(keys).sum()
+    denominator = inner.groupby(keys).sum()
+    return (numerator / denominator).reindex(snapshots)
 
 
 def _natural_shape(

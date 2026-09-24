@@ -56,13 +56,19 @@ def test_assemble_inherits_ccgt_cc_energy_onto_gas_power():
     assert out.loc["lossgas", "2030"] == pytest.approx(1.5)
 
 
-def test_discover_capture_finds_unlisted_four_bus_ccgt_cc():
+# PyPSA-Eur *names* the atmosphere bus ``co2 atmosphere`` but gives it the
+# carrier ``co2``; the short spelling is what production networks actually have,
+# so it is the one the parametrisation must lead with.  A fixture built only on
+# the long spelling let _discover_capture_flows return () on every real network
+# for three weeks without the suite noticing.
+@pytest.mark.parametrize("atmosphere_carrier", ["co2", "co2 atmosphere"])
+def test_discover_capture_finds_unlisted_four_bus_ccgt_cc(atmosphere_carrier):
     buses = pd.DataFrame(
         {
             "carrier": {
                 "gas": "gas",
                 "ac": "AC",
-                "atm": "co2 atmosphere",
+                "atm": atmosphere_carrier,
                 "st": "co2 stored",
             }
         }

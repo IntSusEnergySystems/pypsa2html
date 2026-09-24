@@ -287,8 +287,14 @@ def _bus_carrier(network, bus) -> str:
 
 
 def _is_atmosphere_carrier(name: str) -> bool:
+    # PyPSA-Eur *names* the bus ``co2 atmosphere`` but gives it the carrier
+    # ``co2``.  Accepting only the long spelling made _discover_capture_flows
+    # return () on every real network, which silently dropped ``CCGT CC`` --
+    # the one capture carrier with no static CARBON_FLOWS row -- from the
+    # carbon balance entirely (4.8 Mt captured + 0.25 Mt residual at BEWAL
+    # 2050, pypsa-wal scen_retardnucleaire).
     lowered = name.lower()
-    return lowered in {ATMOSPHERE.lower(), "co2 atmosphere"}
+    return lowered in {ATMOSPHERE.lower(), "co2 atmosphere", "co2"}
 
 
 def _is_stored_carrier(name: str) -> bool:

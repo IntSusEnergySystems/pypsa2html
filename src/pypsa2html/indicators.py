@@ -166,14 +166,38 @@ SELF_SUFFICIENCY_KINDS: tuple[tuple[str, str], ...] = (
     ("electricity", "ss_elc"),
 )
 
-#: ``features.nuclear_primary`` values. Default ``uranium`` keeps fuel as an
-#: import; ``electricity`` books reactor kWh as domestic primary energy.
+#: ``features.nuclear_primary`` values.
+#:
+#: Two independent choices hide in this one switch, and it pays to keep them
+#: apart:
+#:
+#: *magnitude* -- is a reactor's primary energy the **uranium heat** it consumes
+#: (the IEA physical-energy-content convention, ~3x the output) or the
+#: **electricity** it delivers?
+#:
+#: *origin* -- does that energy count as **domestic** or as an **import**?
+#:
+#: ``uranium`` answers (heat, import). ``electricity`` answers (electricity,
+#: domestic) -- it moves *both* levers at once, which roughly doubles a nuclear
+#: region's headline independence and is easy to read as a magnitude effect
+#: alone. ``electricity_import`` answers (electricity, import): the reactor's
+#: thermal losses leave the balance, but the kWh stay on the import side
+#: because the fuel is still not mined here. That is the conservative reading,
+#: and the one to reach for when the question is "how much of Wallonia's energy
+#: comes from Wallonia".
 NUCLEAR_PRIMARY_URANIUM = "uranium"
 NUCLEAR_PRIMARY_ELECTRICITY = "electricity"
+NUCLEAR_PRIMARY_ELECTRICITY_IMPORT = "electricity_import"
 NUCLEAR_PRIMARY_LABELS = {
     NUCLEAR_PRIMARY_URANIUM: "nuclear as imported uranium",
     NUCLEAR_PRIMARY_ELECTRICITY: "nuclear as domestic electricity",
+    NUCLEAR_PRIMARY_ELECTRICITY_IMPORT: "nuclear as imported electricity",
 }
+
+#: Modes that size nuclear by its electrical output rather than its fuel heat.
+NUCLEAR_PRIMARY_ELECTRICAL = frozenset(
+    {NUCLEAR_PRIMARY_ELECTRICITY, NUCLEAR_PRIMARY_ELECTRICITY_IMPORT}
+)
 
 #: GHG nodes that represent a *removal*; their bar is drawn below the axis.
 GHG_REMOVALS: tuple[str, ...] = (
@@ -402,8 +426,8 @@ def _endpoint_sum(frame: pd.DataFrame, level: str, code: str) -> pd.Series:
 def nuclear_primary_mode(ctx) -> str:
     """How nuclear counts in primary-energy independence.
 
-    Default ``uranium``: fuel is an import (not mined here). ``electricity``:
-    kWh generated inside the node count as domestic. Invalid values raise.
+    One of :data:`NUCLEAR_PRIMARY_LABELS` -- see that constant for what each
+    one asserts. Default ``uranium``. Invalid values raise.
     """
     features = getattr(ctx.config, "features", None)
     raw = getattr(features, "nuclear_primary", None)
@@ -414,8 +438,8 @@ def nuclear_primary_mode(ctx) -> str:
     mode = str(raw or NUCLEAR_PRIMARY_URANIUM).strip().lower()
     if mode not in NUCLEAR_PRIMARY_LABELS:
         raise ValueError(
-            "features.nuclear_primary must be 'uranium' or 'electricity', "
-            f"got {raw!r}"
+            "features.nuclear_primary must be one of "
+            f"{sorted(NUCLEAR_PRIMARY_LABELS)}, got {raw!r}"
         )
     return mode
 
@@ -1322,8 +1346,10 @@ class Indicators:
         closed energy graph. With the default ``features.nuclear_primary:
         uranium``, uranium is an import (fuel is not mined here) and
         wind/solar/hydro/biomass are domestic. ``electricity`` instead books
-        reactor kWh as domestic primary energy and drops the uranium import
-        (thermal losses leave the ratio). Electricity self-sufficiency always
+        reactor kWh as domestic primary energy and drops the uranium import;
+        ``electricity_import`` drops the same thermal losses but leaves the kWh
+        on the import side. See :data:`NUCLEAR_PRIMARY_LABELS`. Electricity
+        self-sufficiency always
         uses the ``elc_se`` balance: nuclear kWh generated inside the node
         count as domestic even though the fuel is imported. Internal trade of
         a group cancels because it is already netted in the residual.
@@ -1333,11 +1359,17 @@ class Indicators:
         net_pe = _endpoint_sum(self.flows, "Source", "imp") - _endpoint_sum(
             self.flows, "Target", "exp"
         )
-        if nuclear_primary_mode(self.ctx) == NUCLEAR_PRIMARY_ELECTRICITY:
+        mode = nuclear_primary_mode(self.ctx)
+        if mode in NUCLEAR_PRIMARY_ELECTRICAL:
             nuc_elc = column(self.flows, ("ura_pe", "elc_se", "thm"))
             ura_imp = column(self.flows, ("imp", "ura_pe", ""))
-            domestic_pe = domestic_pe + nuc_elc
+            # Both electrical modes drop the reactor's thermal losses from the
+            # balance; they differ only in which side the kWh land on.
             net_pe = net_pe - ura_imp
+            if mode == NUCLEAR_PRIMARY_ELECTRICITY:
+                domestic_pe = domestic_pe + nuc_elc
+            else:
+                net_pe = net_pe + nuc_elc
 
         elc_in = node_flows(self.flows, "elc_se", direction="in", split="source")
         elc_out = node_flows(self.flows, "elc_se", direction="out", split="target")

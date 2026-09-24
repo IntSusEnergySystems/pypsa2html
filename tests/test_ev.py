@@ -24,11 +24,13 @@ from pypsa2html.datafiles import load_tech_colors
 from pypsa2html.extract.ev import (
     COUNTERFACTUAL,
     DELIVERED,
+    LOCAL,
     MODES,
     NATURAL,
     NET,
     SMART,
     V2G,
+    _align_to_snapshots,
     annual_energy,
     charging_profiles,
     ev_components,
@@ -345,3 +347,93 @@ def test_natural_charging_is_emitted_as_its_own_flow(mini_network, ev_ctx):
 
     bb = _natural_charging_row(ev_ctx("BB"), mini_network, "BB", HORIZON)
     assert bb.empty
+
+
+# ---------------------------------------------------------------------------
+# Natural vs local charging
+# ---------------------------------------------------------------------------
+
+def _split_file(snapshots, *, natural_share, nodes=("AA",)):
+    """A published mode-split table: two shape components per node."""
+    share = pd.Series(natural_share, index=snapshots, dtype=float)
+    shape = pd.Series(1.0 / len(snapshots), index=snapshots)
+    frames = {
+        "natural": pd.DataFrame({node: shape * share for node in nodes}),
+        "local": pd.DataFrame({node: shape * (1 - share) for node in nodes}),
+    }
+    return pd.concat(frames, axis=1)
+
+
+@pytest.fixture
+def split_ctx(ev_ctx):
+    """``ev_ctx`` that also publishes a charging-mode split table."""
+
+    def _ctx(node: str, table):
+        ctx = ev_ctx(node)
+        ctx.read_csv = lambda *args, **kwargs: (
+            None if table is None else table.copy()
+        )
+        return ctx
+
+    return _ctx
+
+
+def test_local_charging_is_zero_without_a_published_split(ev_ctx):
+    """Upstream and old trees keep the two-mode chart they have always had."""
+    data = charging_profiles(ev_ctx("AA"), "AA", HORIZON)
+    assert data.energy_mwh(LOCAL) == 0.0
+    assert data.energy_mwh(NATURAL) > 0.0
+
+
+def test_published_split_carves_local_out_of_natural(split_ctx, mini_network):
+    """The two uncontrolled modes must re-sum to the load they came from."""
+    before = charging_profiles(split_ctx("AA", None), "AA", HORIZON)
+    table = _split_file(mini_network.snapshots, natural_share=0.25)
+    after = charging_profiles(split_ctx("AA", table), "AA", HORIZON)
+
+    assert after.energy_mwh(LOCAL) > 0.0
+    assert after.energy_mwh(NATURAL) + after.energy_mwh(LOCAL) == pytest.approx(
+        before.energy_mwh(NATURAL)
+    )
+    # A flat 25 % share must land on 25 %, not on an hour-weighted average.
+    assert after.energy_mwh(NATURAL) == pytest.approx(
+        0.25 * before.energy_mwh(NATURAL)
+    )
+    # Nothing else moves: the net draw is the same energy, differently labelled.
+    assert after.energy_mwh(NET) == pytest.approx(before.energy_mwh(NET))
+    assert after.energy_mwh(SMART) == pytest.approx(before.energy_mwh(SMART))
+
+
+def test_split_follows_the_published_shape_hour_by_hour(split_ctx, mini_network):
+    """An hour-varying share must reach the frame, not just the annual total."""
+    share = pd.Series(
+        [0.9 if i < 12 else 0.1 for i in range(len(mini_network.snapshots))],
+        index=mini_network.snapshots,
+    )
+    table = _split_file(mini_network.snapshots, natural_share=share.to_numpy())
+    data = charging_profiles(split_ctx("AA", table), "AA", HORIZON)
+    uncontrolled = data.frame[NATURAL] + data.frame[LOCAL]
+    ratio = (data.frame[NATURAL] / uncontrolled).loc[uncontrolled > 0]
+    assert ratio.round(6).nunique() == 2
+    assert ratio.max() == pytest.approx(0.9)
+    assert ratio.min() == pytest.approx(0.1)
+
+
+def test_a_node_missing_from_the_split_keeps_its_whole_load(split_ctx, mini_network):
+    """An unlisted node must not silently lose its charging from the chart."""
+    table = _split_file(mini_network.snapshots, natural_share=0.25, nodes=("ZZ",))
+    data = charging_profiles(split_ctx("AA", table), "AA", HORIZON)
+    assert data.energy_mwh(LOCAL) == pytest.approx(0.0)
+    assert data.energy_mwh(NATURAL) > 0.0
+
+
+def test_split_is_load_weighted_when_the_network_is_coarser(mini_network):
+    """A 6 h run averages each block by the load shape, not by the hour."""
+    hours = pd.date_range("2013-01-01", periods=6, freq="h")
+    blocks = hours[::3]
+    # Hour 0 carries all the energy of its block and is 100 % natural; the two
+    # idle hours are 0 %. An unweighted mean would report 33 %.
+    weights = pd.DataFrame({"AA": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]}, index=hours)
+    share = pd.DataFrame({"AA": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]}, index=hours)
+    aligned = _align_to_snapshots(share, blocks, weights=weights)
+    assert aligned["AA"].tolist() == [1.0, 0.0]

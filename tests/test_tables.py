@@ -70,7 +70,7 @@ def test_parse_nodal_csv_reads_horizons_from_header():
     assert onwind["2035"] == 2035.0
 
 
-def _tables_ctx(tmp_path: Path, horizons=(2025, 2030, 2040)):
+def _tables_ctx(tmp_path: Path, horizons=(2025, 2030, 2040), transmission_costs=False):
     results = tmp_path / "results" / "demo"
     (results / "csvs").mkdir(parents=True)
     (results / "networks").mkdir(parents=True)
@@ -95,7 +95,7 @@ def _tables_ctx(tmp_path: Path, horizons=(2025, 2030, 2040)):
             "focus": "AA",
             "aggregate": {"enabled": True, "code": "ALL", "label": "Both"},
         },
-        "features": {"transmission_costs": True},
+        "features": {"transmission_costs": transmission_costs},
         "scenarios": [{"name": "demo", "label": "Demo", "results_dir": "results/demo"}],
         "landing": {"scenario": "demo", "node": "AA", "page": "costs"},
         "output": {"dir": "html", "pages": ["costs", "capacities"]},
@@ -133,6 +133,22 @@ def _tables_ctx(tmp_path: Path, horizons=(2025, 2030, 2040)):
     )
 
 
+def test_cost_table_keeps_transmission_by_default(tmp_path):
+    """Interconnector cost belongs in the chart unless explicitly opted out.
+
+    It used to be dropped whenever the model had more than one node, on the
+    grounds that it was "attributed separately" -- which nothing did, so it left
+    the report entirely.  `make_summary` now shares a branch between the two
+    regions it connects, so the nodal row is a real regional share.
+    """
+    ctx = _tables_ctx(tmp_path, transmission_costs=None)
+    table = cost_table(ctx, "AA", "total")
+    assert table is not None
+    assert any("transmission" in str(i).lower() or i == "AC" for i in table.index), (
+        f"transmission missing from the default cost table: {list(table.index)}"
+    )
+
+
 def test_cost_table_uses_header_years_not_positional(tmp_path):
     ctx = _tables_ctx(tmp_path, horizons=(2025, 2035, 2045))
     table = cost_table(ctx, "AA", "total")
@@ -141,7 +157,7 @@ def test_cost_table_uses_header_years_not_positional(tmp_path):
     # onwind capital+marginal for AA: year + year/10
     # after tech map onwind stays "onshore wind" or similar
     assert table.shape[0] >= 1
-    # AC dropped because transmission_costs=True
+    # AC dropped only because transmission_costs is explicitly false
     assert "AC" not in table.index
     # Values for the wind group: 2025+202.5 = 2227.5
     wind_rows = [i for i in table.index if "wind" in i.lower() or i == "onwind"]

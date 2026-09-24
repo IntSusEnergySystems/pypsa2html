@@ -86,7 +86,7 @@ texts: {}
 features:
   # Attribute AC/DC transmission costs/capacities separately from nodal CSVs.
   # null = on when the model has more than one real node.
-  transmission_costs: null
+  transmission_costs: null   # false = leave AC/DC out of the nodal cost tables
   # Filter nodal_capacities for capacity charts using network bus topology
   # (default).  Set to "off" to plot every non-Store row (usually unusable —
   # fuel potentials and vents dominate the GW axis).

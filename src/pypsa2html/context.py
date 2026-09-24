@@ -143,7 +143,9 @@ class BuildContext:
         """
         root = self.results_dir if base == "results" else self.resources_dir
         path = Path(root) / relpath
-        key = ("csv", str(path), tuple(sorted(kwargs.items())))
+        # ``repr`` rather than the values themselves: pandas takes a multi-row
+        # header as ``header=[0, 1]``, and a list inside the key is unhashable.
+        key = ("csv", str(path), repr(sorted(kwargs.items())))
         if key not in self._files:
             if not path.exists():
                 logger.warning("missing input, section will be skipped: %s", path)

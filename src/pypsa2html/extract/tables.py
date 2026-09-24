@@ -39,7 +39,8 @@ _CCS_CAPACITY_CARRIERS = frozenset(
     }
 )
 
-#: Carriers dropped from nodal tables when transmission is attributed separately.
+#: Carriers of assets shared by two regions, dropped from the nodal cost tables
+#: only when ``features.transmission_costs`` is explicitly false.
 _TRANSMISSION_CARRIERS = frozenset({"AC", "DC"})
 
 #: Display renames for energy-storage Stores (after the bus-carrier filter).
@@ -218,19 +219,20 @@ def sanitize_prices(
     return numeric.where(numeric.abs() <= limit)
 
 
-def _transmission_enabled(ctx: BuildContext) -> bool:
-    """Whether AC/DC transmission rows should be attributed separately.
+def _exclude_transmission(ctx: BuildContext) -> bool:
+    """Whether to leave AC/DC out of the per-node cost tables.
 
-    ``features.transmission_costs: null`` (default) means auto-on when the
-    model has more than one real node -- meaningful EU-wide, noise for a
-    single-region study.
+    These used to be dropped by default, on the grounds that they were
+    "attributed separately" -- which nothing ever did, so an interconnector's
+    cost simply vanished from every cost chart (1.5-2.2 % of the Walloon annual
+    cost, 0.6 % of the system total).  It is kept now, because ``make_summary``
+    shares a branch between the regions it connects instead of booking it to
+    ``bus0``, which makes the nodal row a real regional share.
+
+    ``features: {transmission_costs: false}`` restores the old exclusion, for a
+    model whose summary still puts the whole interconnector on one end.
     """
-    flag = ctx.config.features.transmission_costs
-    if flag is True:
-        return True
-    if flag is False:
-        return False
-    return len(ctx.nodes.real_codes) > 1
+    return ctx.config.features.transmission_costs is False
 
 
 def _capacity_filter_mode(ctx: BuildContext) -> str:
@@ -421,7 +423,7 @@ def cost_table(
             logger.warning("cost_table: no 'cost' column; cannot filter kind=%s", kind)
             return None
 
-    if _transmission_enabled(ctx):
+    if _exclude_transmission(ctx):
         df = df.loc[~df["carrier"].astype(str).isin(_TRANSMISSION_CARRIERS)]
 
     view = "clustered" if kind == "clustered" else "costs"
@@ -652,7 +654,7 @@ def capacity_table(
     elif kind == "power":
         # Keep AC/DC so ``normalize_carrier`` folds them into
         # "transmission lines" for the faceted capacity chart.  Cost tables
-        # still drop them when ``features.transmission_costs`` is on.
+        # keep them too now, unless ``features.transmission_costs`` is false.
         # Exclude pure Store energy capacities from the power chart
         if not df.empty and "component" in df.columns:
             df = df.loc[df["component"].astype(str) != "Store"]

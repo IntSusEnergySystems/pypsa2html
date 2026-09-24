@@ -669,6 +669,20 @@ def combine_charts(
     stacked composition variants sharing the dropdown with it (and vice
     versa).  ``annotations`` are layout properties for the same reason and are
     swapped the same way, so a per-variant caption follows its own traces.
+
+    **Axes are swapped too**, for exactly the same reason, and for a while were
+    not: the merged figure took variant 0's axes and kept them, so a variant
+    plotted against a different x -- the sensitivity sweep's "over time" view,
+    read against planning horizons rather than the swept price -- inherited the
+    other view's axis title and its tick values, which matched none of its
+    categories and therefore drew no ticks at all.  Only swapped when the
+    variants actually disagree, so every chart whose views share an axis is
+    untouched.
+
+    ``title`` names the *chart* and does not change with the variant: the
+    dropdown already says which view is on screen, and appending the button
+    label to the title reprinted it a second time, in a long line that ran
+    under the menu sitting at the same height.
     """
     usable = [(str(label), fig) for label, fig in figures if fig is not None]
     if not usable:
@@ -676,7 +690,8 @@ def combine_charts(
     if len(usable) == 1:
         only = usable[0][1]
         if title:
-            only.update_layout(title=title)
+            only.update_layout(title=_header_title(title),
+                               margin=_header_margin(only.layout.margin))
         return only
 
     # Per-variant trace visibility as the variant's own figure intended it
@@ -706,16 +721,21 @@ def combine_charts(
     # while variant 2's traces are shown.  Only touched when some variant
     # actually carries one, so charts without captions are unaffected.
     any_annotations = any(bool(fig.layout.annotations) for _, fig in usable)
+    axis_specs = [
+        {name: _axis_spec(fig, name) for name in ("xaxis", "yaxis")}
+        for _, fig in usable
+    ]
+    axes_differ = any(spec != axis_specs[0] for spec in axis_specs[1:])
 
     buttons = []
     for i, (label, fig) in enumerate(usable):
         visible = [False] * n_traces
         for j, flag in enumerate(intent[i]):
             visible[offsets[i] + j] = flag
-        args: list[dict] = [
-            {"visible": visible},
-            {"title": {"text": f"{title} {label}".strip()}},
-        ]
+        args: list[dict] = [{"visible": visible}, {}]
+        if axes_differ:
+            for name, spec in axis_specs[i].items():
+                args[1].update({f"{name}.{k}": v for k, v in spec.items()})
         if fig.layout.barmode is not None:
             args[1]["barmode"] = fig.layout.barmode
         if any_annotations:
@@ -737,7 +757,8 @@ def combine_charts(
         )
 
     merged.update_layout(
-        title=f"{title} {usable[0][0]}".strip() or None,
+        title=_header_title(title),
+        margin=_header_margin(merged.layout.margin),
         updatemenus=[
             {
                 "buttons": buttons,
@@ -745,13 +766,66 @@ def combine_charts(
                 "showactive": True,
                 "x": 1.0,
                 "xanchor": "right",
-                "y": 1.15,
+                "y": _menu_y(merged.layout),
                 "yanchor": "top",
                 "name": menu_title or None,
             }
         ],
     )
     return merged
+
+
+#: Room above the plot for the title row and the variant menu.
+HEADER_MARGIN_TOP = 108
+
+
+def _axis_spec(fig: go.Figure, name: str) -> dict:
+    """The axis properties a variant may legitimately disagree about."""
+    axis = fig.layout[name]
+    return {
+        "title.text": axis.title.text or "",
+        "tickmode": axis.tickmode,
+        "tickvals": list(axis.tickvals) if axis.tickvals else None,
+        "ticktext": list(axis.ticktext) if axis.ticktext else None,
+        "type": axis.type,
+    }
+
+
+def _header_title(title: str) -> dict | None:
+    """Chart title, pinned top-left so the variant menu can sit top-right."""
+    if not title:
+        return None
+    return {
+        "text": title,
+        "xref": "container",
+        "x": 0.008,
+        "xanchor": "left",
+        "yref": "container",
+        "y": 0.975,
+        "yanchor": "top",
+    }
+
+
+def _menu_y(layout) -> float:
+    """Paper ``y`` putting the menu's top edge just inside the figure.
+
+    ``updatemenus`` has no ``yref``, so "just below the top of the figure" has
+    to be expressed in plot-area heights, which depend on the chart's own
+    height and bottom margin -- a fixed 1.15 landed the menu *above* the figure
+    on the default 620 px chart, which is why it printed over the title.
+    """
+    height = float(layout.height or CHART_HEIGHT)
+    bottom = float((layout.margin.b if layout.margin is not None else None) or 60)
+    plot = max(height - HEADER_MARGIN_TOP - bottom, 1.0)
+    return 1.0 + (HEADER_MARGIN_TOP - 14.0) / plot
+
+
+def _header_margin(margin) -> dict:
+    """Guarantee the title row and the menu a strip of their own."""
+    current = margin.to_plotly_json() if margin is not None else {}
+    current = dict(current or {})
+    current["t"] = max(int(current.get("t") or 0), HEADER_MARGIN_TOP)
+    return current
 
 
 # ---------------------------------------------------------------------------

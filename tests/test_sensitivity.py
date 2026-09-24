@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from pypsa2html.charts import sensitivity as sens
+from pypsa2html.charts.base import combine_charts
 from pypsa2html.config import load_config
 from pypsa2html.pages import load_manifest
 
@@ -329,6 +330,79 @@ def test_over_time_is_the_same_numbers_transposed(tmp_path, capacity_stub):
     assert [t.name for t in fig.data] == ["4500 EUR/kW", "9500 EUR/kW"]
     assert list(fig.data[0].x) == ["2030", "2050"]
     assert list(fig.data[0].y) == pytest.approx([1.03, 3.0])
+
+
+def test_coincident_series_stay_tellable_apart(tmp_path, capacity_stub):
+    """Colour alone hides a line that lies exactly under another one.
+
+    Every horizon before the technology turns competitive returns the same
+    floor, so the lines coincide and the reader cannot tell equal from absent.
+    """
+    cfg = load_config(_write(tmp_path))
+    spec = cfg.sensitivities[0]
+    frame = sens._sweep_frame(
+        _contexts({4500: _table((1030, 1030)), 9500: _table((1030, 1030))}),
+        "AA",
+        spec.metrics[0],
+    )
+    fig = sens._versus_parameter(frame, spec=spec, metric=spec.metrics[0], caption="c")
+    assert len({t.line.dash for t in fig.data}) == len(fig.data)
+    assert len({t.marker.symbol for t in fig.data}) == len(fig.data)
+
+
+def test_the_horizon_view_keeps_its_own_axis_in_the_merged_figure(tmp_path, capacity_stub):
+    """The dropdown swaps traces, so it has to swap the axes they are read on.
+
+    Without it the second view inherited the first's x title and tick values,
+    which match none of its categories -- so it drew no x ticks at all.
+    """
+    cfg = load_config(_write(tmp_path))
+    spec = cfg.sensitivities[0]
+    frame = sens._sweep_frame(
+        _contexts({4500: _table((1030, 3000)), 9500: _table((1030, 1030))}),
+        "AA",
+        spec.metrics[0],
+    )
+    merged = combine_charts(
+        [
+            (sens.VIEW_PARAMETER, sens._versus_parameter(
+                frame, spec=spec, metric=spec.metrics[0], caption="c")),
+            (sens.VIEW_HORIZON, sens._over_time(
+                frame, spec=spec, metric=spec.metrics[0], caption="c")),
+        ],
+        title="Installed nuclear capacity",
+        menu_title="View",
+    )
+    horizon = merged.layout.updatemenus[0].buttons[1].args[1]
+    assert horizon["xaxis.title.text"] == "Planning horizon"
+    assert horizon["xaxis.tickvals"] == ["2030", "2050"]
+
+
+def test_the_title_names_the_chart_and_the_menu_names_the_view(tmp_path, capacity_stub):
+    """Appending the button label to the title printed it twice, side by side."""
+    cfg = load_config(_write(tmp_path))
+    spec = cfg.sensitivities[0]
+    frame = sens._sweep_frame(
+        _contexts({4500: _table((1030, 3000)), 9500: _table((1030, 1030))}),
+        "AA",
+        spec.metrics[0],
+    )
+    merged = combine_charts(
+        [
+            (sens.VIEW_PARAMETER, sens._versus_parameter(
+                frame, spec=spec, metric=spec.metrics[0], caption="c")),
+            (sens.VIEW_HORIZON, sens._over_time(
+                frame, spec=spec, metric=spec.metrics[0], caption="c")),
+        ],
+        title="Installed nuclear capacity",
+        menu_title="View",
+    )
+    assert merged.layout.title.text == "Installed nuclear capacity"
+    assert all("title" not in b.args[1] for b in merged.layout.updatemenus[0].buttons)
+    # The caption has to clear the strip the title and the menu sit in.
+    caption = merged.layout.annotations[0]
+    assert caption.y < merged.layout.updatemenus[0].y
+    assert merged.layout.margin.t >= 100
 
 
 def test_an_unsolved_sweep_renders_a_note_not_an_empty_section(tmp_path, monkeypatch):

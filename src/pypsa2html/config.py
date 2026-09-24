@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from dataclasses import field as dc_field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -227,17 +227,31 @@ class FeaturesConfig:
     #: Empty-bus duals in PyPSA routinely hit 1e5–1e6 €/MWh.
     price_abs_cap: float = 1.0e4
     #: How nuclear counts in *primary-energy* independence (electricity
-    #: independence always books reactor kWh as domestic). ``uranium`` (default)
-    #: treats the fuel as an import; ``electricity`` books the kWh produced.
+    #: independence always books reactor kWh as domestic). Two levers, one
+    #: switch -- the *magnitude* of a reactor's primary energy and its *origin*:
+    #:
+    #: ``uranium`` (default)   fuel heat, imported
+    #: ``electricity``         electrical output, domestic
+    #: ``electricity_import``  electrical output, still imported
+    #:
+    #: Only the last two drop the reactor's thermal losses from the balance,
+    #: and only ``electricity`` also moves the kWh to the domestic side -- so
+    #: the step from ``uranium`` to ``electricity`` mixes both effects.
     nuclear_primary: str = "uranium"
+
+    #: Accepted :attr:`nuclear_primary` values, mirrored in
+    #: ``indicators.NUCLEAR_PRIMARY_LABELS``.
+    NUCLEAR_PRIMARY_MODES: ClassVar[frozenset[str]] = frozenset(
+        {"uranium", "electricity", "electricity_import"}
+    )
 
     def __post_init__(self):
         self.price_abs_cap = float(self.price_abs_cap)
         mode = str(self.nuclear_primary or "uranium").strip().lower()
-        if mode not in {"uranium", "electricity"}:
+        if mode not in self.NUCLEAR_PRIMARY_MODES:
             raise ValueError(
-                "features.nuclear_primary must be 'uranium' or 'electricity', "
-                f"got {self.nuclear_primary!r}"
+                "features.nuclear_primary must be one of "
+                f"{sorted(self.NUCLEAR_PRIMARY_MODES)}, got {self.nuclear_primary!r}"
             )
         self.nuclear_primary = mode
 
