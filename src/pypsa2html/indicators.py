@@ -1061,15 +1061,26 @@ def _close_carbon_graph(
         )
 
     # -- net emissions: gross minus the biogenic and land-use sinks --------
+    # With features.capped_emissions on, the net is drawn as two edges instead,
+    # ``atm -> netcap_ghg`` and ``atm -> netoth_ghg``, carried by the
+    # emmnetcap / emmnetoth codes of the carbon balance (extract.emissions).
+    # They are computed before the flow threshold, so the capped part matches
+    # the model's regional cap exactly; this closure works on thresholded
+    # edges and would not.
+    from .extract.emissions import capped_emissions_enabled
+
     inflows = sum_by(flows_co2, where="Target", nodes=ghg_sectors, by="Target")
-    flows_co2[("atm", "net_ghg", "net")] = (
-        inflows.get("atm", _zeros(years))
-        - inflows.get("bm_ghg", _zeros(years))
-        - inflows.get("luf_ghg", _zeros(years))
-        - column(flows_co2, ("atm", "stm", ""))
-        - column(flows_co2, ("atm", "blg_ghg", ""))
-        - column(flows_co2, ("atm", "blg_ghg", "cc"))
-    )
+    if capped_emissions_enabled(ctx):
+        flows_co2[("atm", "net_ghg", "net")] = _zeros(years)
+    else:
+        flows_co2[("atm", "net_ghg", "net")] = (
+            inflows.get("atm", _zeros(years))
+            - inflows.get("bm_ghg", _zeros(years))
+            - inflows.get("luf_ghg", _zeros(years))
+            - column(flows_co2, ("atm", "stm", ""))
+            - column(flows_co2, ("atm", "blg_ghg", ""))
+            - column(flows_co2, ("atm", "blg_ghg", "cc"))
+        )
 
     # -- methanol trade carries its embodied CO2 ---------------------------
     if not aggregate and np.isfinite(methanol_co2):

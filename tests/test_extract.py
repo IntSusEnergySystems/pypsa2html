@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from pypsa2html.extract.emissions import CARBON_FLOWS, _carrier_mask, _entry_names
+from pypsa2html.extract.emissions import (
+    CARBON_FLOWS,
+    CarbonFlow,
+    _carrier_mask,
+    _entry_names,
+)
 from pypsa2html.extract.flows import (
     _aggregate_carriers,
     _assemble,
@@ -18,6 +23,8 @@ from pypsa2html.extract.flows import (
     _rank_entries,
 )
 from tests.conftest import requires_model
+
+DATA = Path(__file__).resolve().parents[1] / "src" / "pypsa2html" / "data"
 
 
 def test_rank_entries_is_stable_and_matches_legacy_suffix_rules():
@@ -134,11 +141,31 @@ def test_carbon_entry_names_follow_table_order():
 
 def test_carrier_mask_prefix_matches_cc_variants():
     static = pd.DataFrame({"carrier": ["SMR", "SMR CC", "OCGT"]}, index=["a", "b", "c"])
-    flow = next(
-        item for item in CARBON_FLOWS if item.label == "SMR" and item.match == "prefix"
-    )
+    flow = CarbonFlow("SMR", "gas", "co2 atmosphere", ("SMR",), 2, match="prefix")
     mask = _carrier_mask(static, flow)
     assert list(static.index[mask]) == ["a", "b"]
+
+
+@pytest.mark.parametrize("label", ["SMR", "urban central gas CHP"])
+def test_rows_with_their_own_cc_rows_are_exact(label):
+    """As prefixes they booked the CC sibling's atmosphere port a second time."""
+    static = pd.DataFrame({"carrier": [label, f"{label} CC"]}, index=["a", "b"])
+    flow = next(item for item in CARBON_FLOWS if item.label == label)
+    assert flow.match == "exact"
+    assert list(static.index[_carrier_mask(static, flow)]) == ["a"]
+
+
+def test_process_capture_residual_is_counted():
+    """Port 1 of ``process emissions CC`` is the uncaptured share."""
+    names = _entry_names(CARBON_FLOWS)
+    rows = [
+        (name, flow) for name, flow in zip(names, CARBON_FLOWS)
+        if flow.carriers == ("process emissions CC",)
+    ]
+    assert {(f.port, f.target) for _, f in rows} == {(2, "co2 stored"), (1, "co2 atmosphere")}
+    residual = next(name for name, f in rows if f.port == 1)
+    table = pd.read_csv(DATA / "carrier_flows_carbon.csv")
+    assert table.set_index("entry").at[residual, "code"] == "emmprocesscc"
 
 
 def test_ccgt_carbon_is_exact_and_does_not_swallow_ccs():

@@ -43,14 +43,23 @@ Quirks kept on purpose
 ----------------------
 Several rows use ``match="prefix"`` because the original matched a substring of
 the link *name* and therefore swept up the CC variant of the technology as
-well: ``coal`` also counts ``coal for industry``, ``SMR`` also counts
-``SMR CC``, and ``biogas to gas``, ``urban central gas CHP``, ``waste CHP``
-and ``urban central solid biomass CHP`` also count their ``CC`` siblings even
-though those have rows of their own.  For ``biogas to gas`` this mixes a
-port that feeds the atmosphere with one that feeds the CO2 store, so the row
-turns negative once carbon capture dominates.  The behaviour is reproduced
-rather than corrected so that the numbers still match the published sheets;
-switching any of these to ``match="exact"`` is a one-word change.
+well: ``coal`` also counts ``coal for industry``, and ``biogas to gas``,
+``waste CHP`` and ``urban central solid biomass CHP`` also count their ``CC``
+siblings even though those have rows of their own.  For ``biogas to gas`` this
+mixes a port that feeds the atmosphere with one that feeds the CO2 store, so
+the row turns negative once carbon capture dominates.  The behaviour is
+reproduced rather than corrected so that the numbers still match the published
+sheets; switching any of these to ``match="exact"`` is a one-word change.
+
+Corrected 2026-10-01 (they changed a net-emission total, not just a label):
+
+* ``SMR`` and ``urban central gas CHP`` are **exact**.  As prefixes they booked
+  the atmosphere port of ``SMR CC`` / ``urban central gas CHP CC`` a second
+  time, on top of the CC rows' own residual.
+* The **residual of ``process emissions CC``** (its port 1, the uncaptured
+  share) is counted.  Only the captured port was, so every node with process
+  capture under-reported its net emissions: 0.33 Mt at the pypsa-wal Walloon
+  node in 2050, a quarter of what its regional cap allows.
 
 ``CCGT`` and ``OCGT`` are **exact**.  A prefix match would swallow
 ``CCGT CC`` / ``OCGT CC`` residual into the unabated row and miss the
@@ -146,7 +155,7 @@ CARBON_FLOWS: tuple[CarbonFlow, ...] = (
     CarbonFlow("coal", "coal", ATMOSPHERE, ("coal",), component="generators", sign=1.0,
                intensity=("coal", "CO2 intensity"), match="prefix"),
     CarbonFlow("Sabatier", STORED, "gas", ("Sabatier",), 2, sign=1.0, match="prefix"),
-    CarbonFlow("SMR", "gas", ATMOSPHERE, ("SMR",), 2, match="prefix"),
+    CarbonFlow("SMR", "gas", ATMOSPHERE, ("SMR",), 2),
     CarbonFlow("SMR CC", "gas", ATMOSPHERE, ("SMR CC",), 2, match="prefix"),
     CarbonFlow("SMR CC", "gas", STORED, ("SMR CC",), 3, match="prefix"),
     CarbonFlow("rural gas boiler", "gas", ATMOSPHERE, ("rural gas boiler",), 2),
@@ -212,8 +221,7 @@ CARBON_FLOWS: tuple[CarbonFlow, ...] = (
     CarbonFlow("solid biomass biomass to liquid CC", ATMOSPHERE, "solid biomass",
                ("biomass to liquid CC",), 3, same_as_previous=True),
     CarbonFlow("Fischer-Tropsch", STORED, "oil", ("Fischer-Tropsch",), 2, sign=1.0),
-    CarbonFlow("urban central gas CHP", "gas", ATMOSPHERE, ("urban central gas CHP",), 3,
-               match="prefix"),
+    CarbonFlow("urban central gas CHP", "gas", ATMOSPHERE, ("urban central gas CHP",), 3),
     CarbonFlow("urban central gas CHP CC1", "gas", ATMOSPHERE, ("urban central gas CHP CC",), 3),
     CarbonFlow("urban central gas CHP CC2", "gas", STORED, ("urban central gas CHP CC",), 4),
     CarbonFlow("urban central solid biomass CHP", "solid biomass", ATMOSPHERE,
@@ -246,6 +254,24 @@ CARBON_FLOWS: tuple[CarbonFlow, ...] = (
                intensity=("gas", "CO2 intensity")),
     CarbonFlow("fossil oil", "fossil oil", "oil", ("oil refining",), 1,
                intensity=("oil", "CO2 intensity")),
+    # Appended, not inserted, so that no existing entry name moves: this is the
+    # second "process emissions CC" row, i.e. ``process emissions CC_2``.
+    CarbonFlow("process emissions CC", "process emissions", ATMOSPHERE,
+               ("process emissions CC",), 1),
+    # Rows the balance never had, so their CO2 was missing from the net
+    # (2026-10-01).  The two biogenic routes draw carbon from the atmosphere
+    # into a fuel pool (port 2, negative efficiency): booked like BtL, as an
+    # uptake into biomass passed on to the fuel.
+    CarbonFlow("unsustainable bioliquids", ATMOSPHERE, "solid biomass",
+               ("unsustainable bioliquids",), 2, sign=1.0),
+    CarbonFlow("unsustainable bioliquids", "solid biomass", "oil",
+               ("unsustainable bioliquids",), 2, sign=1.0, same_as_previous=True),
+    CarbonFlow("biomass-to-methanol", ATMOSPHERE, "solid biomass",
+               ("biomass-to-methanol",), 2, sign=1.0),
+    CarbonFlow("biomass-to-methanol", "solid biomass", "methanol",
+               ("biomass-to-methanol",), 2, sign=1.0, same_as_previous=True),
+    CarbonFlow("oil plants", "oil", ATMOSPHERE, ("oil",), 2),
+    CarbonFlow("industry methanol", "methanol", ATMOSPHERE, ("industry methanol",), 2),
 )
 
 
@@ -343,6 +369,29 @@ def _discover_capture_flows(network) -> tuple[CarbonFlow, ...]:
         source = fuel or "gas"
         extra.append(CarbonFlow(carrier, source, ATMOSPHERE, (carrier,), atm_port))
         extra.append(CarbonFlow(carrier, source, STORED, (carrier,), stored_port))
+    return tuple(extra)
+
+
+def _discover_atmosphere_flows(network, covered: tuple[CarbonFlow, ...]) -> tuple[CarbonFlow, ...]:
+    """Every other link port on a ``co2`` bus, so the net is complete.
+
+    These rows have no code in ``carrier_flows_carbon.csv``: they are not
+    drawn, but :func:`_balance_for_horizon` counts them in ``net co2
+    emissions``.  Before 2026-10-01 a carrier with no row (oil power plants,
+    industry methanol, ...) was simply absent from the net.
+    """
+    links = getattr(network, "links", None)
+    if links is None or getattr(links, "empty", True) or "carrier" not in links.columns:
+        return ()
+    extra: list[CarbonFlow] = []
+    for carrier, group in links.groupby(links["carrier"].astype(str), sort=False):
+        if _carbon_flow_covers(carrier, covered):
+            continue
+        row = group.iloc[0]
+        for port in range(6):
+            column = f"bus{port}"
+            if column in row.index and _is_atmosphere_carrier(_bus_carrier(network, row[column])):
+                extra.append(CarbonFlow(f"other: {carrier}", "other", ATMOSPHERE, (carrier,), port))
     return tuple(extra)
 
 
@@ -461,12 +510,92 @@ def _agriculture_ghg(ctx: BuildContext, node: str, horizon: int) -> float | None
     return _node_value(ctx, table[columns].sum(axis=1), node)
 
 
+def _capped_config(ctx: BuildContext) -> dict | None:
+    cfg = ctx.config.raw.get("features", {}).get("capped_emissions")
+    if not isinstance(cfg, dict) or not cfg.get("enable", False):
+        return None
+    return cfg
+
+
+def capped_emissions_enabled(ctx) -> bool:
+    """True when the net-emission split of :func:`capped_emissions` is on."""
+    return _capped_config(ctx) is not None
+
+
+def capped_emissions(ctx: BuildContext, node: str, horizon: int) -> float | None:
+    """Net CO2 under the model's regional (per-country) cap, in Mt.
+
+    Enabled with ``features: {capped_emissions: {enable: true, ...}}``.  The
+    booking follows PyPSA-Eur's ``add_co2limit_country``:
+
+    * every flow into a ``co2`` bus, at every link port, counts (a withdrawal
+      from the atmosphere counts negative);
+    * a link's flow is booked to the location of its ``bus1``;
+    * ``location_port`` moves a carrier to another port (default ``DAC: 3``);
+    * carriers matching ``source_patterns`` are booked to ``bus0`` (default
+      ``process emissions``, ``HVC to air``);
+    * carriers matching ``exclude_patterns`` are left out (aviation, when the
+      cap excludes it), as is anything booked to ``EU`` or to no location.
+
+    Compare it with what the regional target constrains, not with
+    ``net co2 emissions``: the latter is this module's own balance, which also
+    contains what the cap leaves out.  Returns ``None`` when the feature is
+    off.
+    """
+    cfg = _capped_config(ctx)
+    if cfg is None:
+        return None
+    network = ctx.networks[horizon]
+    links = network.links
+    if links.empty:
+        return 0.0
+    buses = network.buses
+    location = (
+        buses["location"].where(buses["location"].astype(str) != "", buses.index.to_series())
+        if "location" in buses.columns
+        else buses.index.to_series()
+    )
+    carrier = links["carrier"].astype(str)
+    booked = links["bus1"].map(location)
+    for name, port in (cfg.get("location_port") or {"DAC": 3}).items():
+        column = f"bus{port}"
+        hit = carrier == name
+        if column in links.columns and hit.any():
+            booked[hit] = links.loc[hit, column].map(location)
+    for pattern in cfg.get("source_patterns", ("process emissions", "HVC to air")):
+        hit = carrier.str.contains(pattern, regex=False)
+        booked[hit] = links.loc[hit, "bus0"].map(location)
+    booked = booked.fillna("").astype(str)
+
+    keep = booked.ne("") & booked.ne("EU")
+    for pattern in cfg.get("exclude_patterns", ()):
+        keep &= ~carrier.str.contains(pattern, regex=False)
+    locations = ctx.locations_for(node)
+    if locations is not None:
+        keep &= booked.isin(locations)
+
+    totals = _link_port_totals(ctx, horizon)
+    value = 0.0
+    for port, series in totals.items():
+        column = f"bus{port}"
+        if column not in links.columns:
+            continue
+        bus_carrier = links[column].map(buses["carrier"]).fillna(links[column]).astype(str)
+        on_co2 = bus_carrier.map(_is_atmosphere_carrier)
+        selected = links.index[keep & on_co2]
+        # PyPSA's p_k is a withdrawal from bus k: the flow *into* the
+        # atmosphere is -p_k at every port, port 0 included.
+        value -= float(series.reindex(selected).fillna(0.0).sum())
+    return value
+
+
 # --------------------------------------------------------------------------
 def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataFrame:
     """The full carbon balance for one node and horizon, in MtCO2."""
     reductions = _Reductions(ctx, node, horizon)
     discovered = _discover_capture_flows(reductions.network)
     flows = CARBON_FLOWS + discovered
+    flows = flows + _discover_atmosphere_flows(reductions.network, flows)
 
     rows = []
     previous = 0.0
@@ -506,6 +635,7 @@ def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataF
         [balance, pd.DataFrame(extras, columns=balance.columns)],
         ignore_index=True,
     )
+    net = _net(ATMOSPHERE)  # before the net row, which leaves the atmosphere itself
     balance = pd.concat(
         [
             balance,
@@ -516,7 +646,7 @@ def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataF
                         "net co2 emissions",
                         ATMOSPHERE,
                         "net co2 emissions",
-                        _net(ATMOSPHERE),
+                        net,
                     )
                 ],
                 columns=balance.columns,
@@ -524,6 +654,26 @@ def _balance_for_horizon(ctx: BuildContext, node: str, horizon: int) -> pd.DataF
         ],
         ignore_index=True,
     )
+    # The split of the net into what the regional cap constrains and the rest
+    # (aviation, ...), so the capped part can be read against a regional target
+    # or another model's regional total.  Off unless configured.
+    capped = capped_emissions(ctx, node, horizon)
+    if capped is not None:
+        balance = pd.concat(
+            [
+                balance,
+                pd.DataFrame(
+                    [
+                        ("net co2 emissions, capped", "net co2 emissions, capped",
+                         ATMOSPHERE, "net co2 emissions, capped", capped),
+                        ("net co2 emissions, other", "net co2 emissions, other",
+                         ATMOSPHERE, "net co2 emissions, other", net - capped),
+                    ],
+                    columns=balance.columns,
+                ),
+            ],
+            ignore_index=True,
+        )
     return balance
 
 

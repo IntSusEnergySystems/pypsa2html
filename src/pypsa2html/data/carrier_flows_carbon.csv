@@ -72,3 +72,10 @@ fossil gas,fossil gas,MtCO2,emmfossgas
 Non-energy GHG Agriculture,Non-energy GHG Agriculture,MtCO2,emmghgagri
 oil plants,oil plants,MtCO2,emoilppatm
 industry methanol,industry methanol,MtCO2,emindmetatm
+process emissions CC_2,process emissions CC residual,MtCO2,emmprocesscc
+"net co2 emissions, capped",net co2 emissions under the regional cap,MtCO2,emmnetcap
+"net co2 emissions, other",net co2 emissions not capped regionally,MtCO2,emmnetoth
+unsustainable bioliquids,unsustainable bioliquids uptake,MtCO2,emmbioliqatm
+unsustainable bioliquids_2,unsustainable bioliquids,MtCO2,emmbioliq
+biomass-to-methanol,biomass-to-methanol uptake,MtCO2,emmbmmetatm
+biomass-to-methanol_2,biomass-to-methanol,MtCO2,emmbmmet

@@ -238,6 +238,12 @@ class FeaturesConfig:
     #: and only ``electricity`` also moves the kWh to the domestic side -- so
     #: the step from ``uranium`` to ``electricity`` mixes both effects.
     nuclear_primary: str = "uranium"
+    #: Split the carbon Sankey's net-emission node into what the model's
+    #: regional (per-country) CO2 cap constrains and the rest, booked like
+    #: PyPSA-Eur's ``add_co2limit_country``.  ``None`` = off.  Keys: ``enable``,
+    #: ``location_port`` ({carrier: port}), ``source_patterns``,
+    #: ``exclude_patterns`` -- see :func:`pypsa2html.extract.emissions.capped_emissions`.
+    capped_emissions: dict | None = None
 
     #: Accepted :attr:`nuclear_primary` values, mirrored in
     #: ``indicators.NUCLEAR_PRIMARY_LABELS``.
