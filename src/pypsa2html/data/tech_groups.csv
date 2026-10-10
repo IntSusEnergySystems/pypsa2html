@@ -247,21 +247,21 @@ load,map,load shedding,68
 ^gas pipeline$,map,H2 & gas pipelines,91
 ^gas pipeline new$,map,H2 & gas pipelines,92
 ^H2 pipeline retrofitted$,map,H2 & gas pipelines,93
-^synthetic fuels & techs$,clustered,Uses,0
-^Fischer-Tropsch$,clustered,Uses,1
-^power-to-heat$,clustered,Uses,2
-^electrolysis$,clustered,Uses,3
-^methanation$,clustered,Uses,3
-^CCU$,clustered,Uses,4
-^CCUS$,clustered,Uses,5
-^DAC$,clustered,Uses,6
-^boilers$,clustered,Uses,7
-^load shedding$,clustered,Uses,8
-^transmission lines$,clustered,Networks,9
-^distribution network$,clustered,Networks,10
-^battery storage$,clustered,Networks,11
-^TES & H2 storage$,clustered,Networks,12
-^H2 & gas pipelines$,clustered,Networks,13
+^synthetic fuels & techs$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),0
+^Fischer-Tropsch$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),1
+^power-to-heat$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),2
+^electrolysis$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),3
+^methanation$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),3
+^CCU$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),4
+^CCUS$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),5
+^DAC$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),6
+^boilers$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),7
+^load shedding$,clustered,End uses & conversion (heat / H2 / e-fuels / capture),8
+^transmission lines$,clustered,Networks & storage,9
+^distribution network$,clustered,Networks & storage,10
+^battery storage$,clustered,Networks & storage,11
+^TES & H2 storage$,clustered,Networks & storage,12
+^H2 & gas pipelines$,clustered,Networks & storage,13
 ^solar$,clustered,Power Plants,14
 ^solar PV$,clustered,Power Plants,15
 ^onshore wind$,clustered,Power Plants,16
@@ -270,6 +270,6 @@ load,map,load shedding,68
 ^hydroelectricity$,clustered,Power Plants,19
 ^biomass fuel & techs$,clustered,Power Plants,20
 ^CHP$,clustered,Power Plants,21
-^Electricity Imports/Exports$,clustered,Imports,22
-^Hydrogen Imports/Exports$,clustered,Imports,23
-^Fossil fuels & powerplants$,clustered,Imports,24
+^Electricity Imports/Exports$,clustered,Fossil fuels & imports,22
+^Hydrogen Imports/Exports$,clustered,Fossil fuels & imports,23
+^Fossil fuels & powerplants$,clustered,Fossil fuels & imports,24

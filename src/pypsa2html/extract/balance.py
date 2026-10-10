@@ -87,8 +87,15 @@ def energy_balance(
     horizon: int,
     start: pd.Timestamp | str | None = None,
     stop: pd.Timestamp | str | None = None,
+    *,
+    min_mw: float = _DISPATCH_THRESHOLD_MW,
 ) -> pd.DataFrame | None:
-    """Nodal supply/demand balance for one carrier and horizon (MW, tech groups)."""
+    """Nodal supply/demand balance for one carrier and horizon (MW, tech groups).
+
+    ``carrier`` is matched as a substring of the bus carrier: ``"heat"`` takes
+    every heat bus of the node, ``"urban central heat"`` the district-heating
+    bus alone.  Technologies whose series never reaches ``min_mw`` are dropped.
+    """
     if horizon not in ctx.networks:
         logger.warning("no network for horizon %s", horizon)
         return None
@@ -122,7 +129,8 @@ def energy_balance(
         imp_exp = import_export_series(n, resolver, locations)
         supply = supply.assign(Imports_Exports=imp_exp)
 
-    if carrier == "heat":
+    is_heat = "heat" in carrier
+    if is_heat:
         supply = supply.rename(
             columns={"urban central resistive heater": "centralised electric boiler"}
         )
@@ -135,10 +143,10 @@ def energy_balance(
 
     supply = supply.drop(columns=[c for c in supply.columns if c in _DROP_GROUPS], errors="ignore")
 
-    if carrier == "heat":
+    if is_heat:
         supply = _heat_column_cleanup(supply)
 
-    supply = _drop_small_columns(supply)
+    supply = _drop_small_columns(supply, min_mw)
 
     if start is not None or stop is not None:
         supply = supply.loc[start:stop]
@@ -313,8 +321,10 @@ def _heat_column_cleanup(supply: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _drop_small_columns(supply: pd.DataFrame) -> pd.DataFrame:
+def _drop_small_columns(
+    supply: pd.DataFrame, min_mw: float = _DISPATCH_THRESHOLD_MW
+) -> pd.DataFrame:
     if supply.empty:
         return supply
-    keep = supply.columns[(supply.abs() >= _DISPATCH_THRESHOLD_MW).any()]
+    keep = supply.columns[(supply.abs() >= min_mw).any()]
     return supply.loc[:, keep]
