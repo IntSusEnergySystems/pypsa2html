@@ -16,16 +16,45 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-#: Process-wide cache keyed by resolved ``.nc`` path.  Lets overview pages and
-#: sequential scenario builds reuse networks that another :class:`NetworkCache`
-#: already loaded.  Cleared at the end of :func:`pypsa2html.build.build_site`.
+#: Process-wide cache keyed by resolved ``.nc`` path.  It is the ONLY owner of
+#: loaded networks: :class:`NetworkCache` instances index into it and hold none
+#: themselves, so its size is the number of solved networks pypsa2html keeps in
+#: RAM, across every scenario of a site.  Lets overview pages and sequential
+#: scenario builds reuse networks another scenario already loaded.  Bounded by
+#: ``model.network_cache_size`` through :func:`set_path_cache_max` (applied by
+#: :func:`pypsa2html.build.build_site`); cleared at the end of a build.
 _PATH_CACHE: OrderedDict[str, object] = OrderedDict()
-_PATH_CACHE_MAX = 24  # comfortably fits 3 scenarios × 4 horizons
+_DEFAULT_PATH_CACHE_MAX = 24  # comfortably fits 6 scenarios × 4 horizons
+_PATH_CACHE_MAX = _DEFAULT_PATH_CACHE_MAX
 
 
 def clear_path_cache() -> None:
     """Drop every network held in the process-wide path cache."""
     _PATH_CACHE.clear()
+
+
+def set_path_cache_max(maxsize: int | None) -> None:
+    """Bound the number of solved networks held in RAM, process-wide.
+
+    ``None`` or a non-positive value restores the default (24).  Excess
+    entries are evicted at once, oldest first.  Until 2026-10-06 the bound was
+    fixed at 24 and each :class:`NetworkCache` kept its own references on top,
+    so ``model.network_cache_size`` bounded nothing: a one-scenario pypsa-wal
+    report over four 1 h networks (plus the other configured scenarios'
+    networks) exceeded 10 GB.
+    """
+    global _PATH_CACHE_MAX
+    if maxsize is None or int(maxsize) <= 0:
+        _PATH_CACHE_MAX = _DEFAULT_PATH_CACHE_MAX
+    else:
+        _PATH_CACHE_MAX = int(maxsize)
+    _evict()
+
+
+def _evict() -> None:
+    while len(_PATH_CACHE) > _PATH_CACHE_MAX:
+        evicted, _ = _PATH_CACHE.popitem(last=False)
+        logger.debug("evicted %s from the network cache", evicted)
 
 
 def _load_network(path: Path):
@@ -38,30 +67,34 @@ def _load_network(path: Path):
 
     import pypsa  # imported here to keep `import pypsa2html` cheap
 
+    # Make room before loading, so the bound holds at the peak too (the old
+    # entry would otherwise still be resident while the new one is read).
+    while _PATH_CACHE and len(_PATH_CACHE) >= _PATH_CACHE_MAX:
+        _PATH_CACHE.popitem(last=False)
     logger.info("loading %s", path)
     network = pypsa.Network(str(path))
     _PATH_CACHE[key] = network
-    while len(_PATH_CACHE) > _PATH_CACHE_MAX:
-        _PATH_CACHE.popitem(last=False)
     return network
 
 
 class NetworkCache:
-    """``horizon -> pypsa.Network``, loaded on demand, LRU-bounded.
+    """``horizon -> pypsa.Network`` for one scenario, loaded on demand.
 
-    Default ``maxsize`` is ``None`` (keep every horizon).  An LRU of 2 with
-    four planning horizons reloads each ``.nc`` dozens of times per build —
-    each load is ~1 s for a Wallonia-sized network.
+    An index into the process-wide cache: it holds no network itself, so the
+    RAM bound is :func:`set_path_cache_max` (``model.network_cache_size``) for
+    the whole process, not ``maxsize`` per scenario.  ``maxsize`` is kept for
+    API compatibility.  A bound of 2 with four planning horizons reloads each
+    ``.nc`` many times per build (~1–3 s per load): set it only when RAM is
+    tight.
     """
 
     def __init__(self, paths: dict[int, Path], maxsize: int | None = None):
         self.paths = dict(paths)
-        # None / non-positive → hold every horizon present on disk.
+        # None / non-positive → one per horizon present on disk.
         if maxsize is None or maxsize <= 0:
             self.maxsize = max(1, len(self.paths))
         else:
             self.maxsize = max(1, int(maxsize))
-        self._cache: OrderedDict[int, object] = OrderedDict()
 
     @property
     def horizons(self) -> list[int]:
@@ -71,9 +104,6 @@ class NetworkCache:
         return horizon in self.paths
 
     def __getitem__(self, horizon: int):
-        if horizon in self._cache:
-            self._cache.move_to_end(horizon)
-            return self._cache[horizon]
         try:
             path = self.paths[horizon]
         except KeyError:
@@ -82,20 +112,16 @@ class NetworkCache:
             ) from None
         if not path.exists():
             raise FileNotFoundError(f"solved network not found: {path}")
-
-        network = _load_network(path)
-        self._cache[horizon] = network
-        while len(self._cache) > self.maxsize:
-            evicted, _ = self._cache.popitem(last=False)
-            logger.debug("evicted network for horizon %s from cache", evicted)
-        return network
+        return _load_network(path)
 
     def first(self):
         """The earliest horizon's network -- used for node auto-detection."""
         return self[self.horizons[0]]
 
     def clear(self) -> None:
-        self._cache.clear()
+        """Drop this scenario's networks from the process-wide cache."""
+        for path in self.paths.values():
+            _PATH_CACHE.pop(str(path.resolve()), None)
 
 
 def discover_horizons(results_dir: Path, pattern: str, **fmt) -> list[int]:

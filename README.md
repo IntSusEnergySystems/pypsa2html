@@ -503,6 +503,20 @@ performed ~400 disk loads (~0.8 s each). Fixes:
 - shared `BuildContext` pool across scenarios so overview does not re-extract
   every node three times.
 
+**Memory bound (2026-10-06).** `model.network_cache_size` is now a real,
+process-wide bound on the solved networks kept in RAM. The path cache is the only
+owner of loaded networks; each scenario's `NetworkCache` is an index into it.
+Before, the path cache kept up to 24 networks whatever the setting, and every
+`NetworkCache` held its own references on top.
+* `null` keeps the default of 24 (no reloading).
+* `2` caps RAM at about two networks.
+* Measured on pypsa-wal, one scenario with four 1 h networks of about 2.5 GB each:
+  7.8 GB peak and 36 min with the bound at 2, against more than 10 GB (OOM in a 10 GB cgroup)
+  without it.
+* A one-scenario build still reads every configured scenario whose results
+  tree exists on disk, for the scenario-comparison charts. List only scenarios
+  of the same vintage.
+
 pypsa-wal full site: **~832 s → ~131 s** (12 network loads). Items 9–10:
 dispatch HTML is thinner (`dispatch_step_hours: 2`) and identical map PNGs are
 reused across scenarios via content fingerprints.

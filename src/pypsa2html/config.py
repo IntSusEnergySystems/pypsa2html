@@ -150,9 +150,11 @@ class ModelConfig:
     #: is one megawatt: below that the capacity chart (GW, 3 significant digits)
     #: cannot draw the bar the factor would have to be read against.
     utilisation_capacity_floor: float = 1.0
-    #: How many solved networks to keep in RAM.  ``None`` = one per horizon
-    #: (avoids thrashing the LRU during dispatch/maps/overview).  Set a small
-    #: positive int only when RAM is tight.
+    #: How many solved networks to keep in RAM, process-wide (every scenario of
+    #: the build together).  ``None`` = the default of 24, i.e. every horizon
+    #: of a few scenarios (no reloading).  Set a small positive int only when
+    #: RAM is tight: 2 on a 16 GB machine with 1 h networks (~2.5 GB each),
+    #: at the price of reloading networks (~1–3 s per load).
     network_cache_size: int | None = None
     dispatch_windows: DispatchWindowsConfig = field(default_factory=DispatchWindowsConfig)
     #: Keep every N-th snapshot when serialising dispatch charts (``1`` = hourly).

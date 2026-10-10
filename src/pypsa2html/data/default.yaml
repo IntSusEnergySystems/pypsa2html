@@ -19,8 +19,9 @@ model:
   base_year: null           # e.g. 2020 to merge an exogenous historical column
   base_year_source: null    # path template for that column, relative to root
   flow_threshold: 0.1       # TWh (Mt for CO2); flows below this are dropped
-  # Solved .nc files kept in RAM. null = one per planning horizon (recommended).
-  # A small LRU (e.g. 2) with 4 horizons reloads each network dozens of times.
+  # Solved .nc files kept in RAM, process-wide (all scenarios of the build).
+  # null = default of 24 (no reloading). A small bound (e.g. 2) caps RAM at about
+  # two networks and reloads each one many times; use it when RAM is tight.
   network_cache_size: null
   dispatch_windows:
     winter: null            # null = derive a week near February from snapshots

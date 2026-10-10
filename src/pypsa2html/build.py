@@ -274,9 +274,12 @@ def build_site(
 ) -> BuildReport:
     """Build the whole site: every scenario, plus ``index.html``."""
     from .charts.maps import clear_map_png_cache
-    from .networks import clear_path_cache
+    from .networks import clear_path_cache, set_path_cache_max
 
     clear_map_png_cache()
+    # `model.network_cache_size` is a process-wide RAM bound on solved
+    # networks (null = the default of 24), restored when the site is written.
+    set_path_cache_max(getattr(config.model, "network_cache_size", None))
     report = BuildReport()
     manifest = manifest or load_manifest(
         enable=config.plots,
@@ -322,6 +325,7 @@ def build_site(
     finally:
         # Free the process-wide .nc cache once the site is written.
         clear_path_cache()
+        set_path_cache_max(None)
 
     logger.info(report.summary())
     return report
