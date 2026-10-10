@@ -53,6 +53,8 @@ def test_dispatch_window_uses_config_when_set():
         "dispatch.power_summer",
         "dispatch.heat_winter",
         "dispatch.heat_summer",
+        "dispatch.district_heat_winter",
+        "dispatch.district_heat_summer",
     ],
 )
 def test_dispatch_builders_resolve(builder):

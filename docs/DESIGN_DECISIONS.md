@@ -731,3 +731,41 @@ MW capacity table is plotted in GW without the config saying so.
 
 **Reversibility: Easy** — deleting `sensitivities:` and the markers restores the
 previous behaviour exactly; the sweep points become ordinary scenarios again.
+
+
+## D23 — Network costs are shown as the users pay them, with the model view beside
+
+**Context.** In September 2026 a stakeholder compared the *distribution* bar
+of a pypsa-wal cost chart (≈0.4 bn€, model annuities, gas mixed in) with the
+regulator's allowed revenue (≈1 bn€) and asked, for transmission, what was
+existing and what new, and what was inside the region versus the links with
+its neighbours.  The model alone cannot answer: a one-bus region has no
+internal grid, and its existing grid is a sunk regulated asset whose model
+annuity is an artefact of building it "from scratch" in the first horizon.
+
+**Decision.** Two dedicated sections, fed by a project-written calibrated long
+table (layers L1 existing, L2 new, L3 OPEX, L4 losses/add-ons, memo) for the
+one region it describes, plus a branch view computed from the networks for
+every node:
+
+* distribution — electricity and gas never summed; every regulated layer
+  stacked; new layers hatched; regulator totals as reference markers; the
+  memo row (the model's valuation of the existing grid) listed, never added;
+* transmission — the *tariff* view (national regulated revenue and national
+  increments times the region's offtake share; H₂/CO₂ pipelines 50/50), which
+  is the figure the cost-by-segment chart uses, and per network the *branch*
+  view by neighbour, existing vs new; a table line states that internal
+  reinforcement is not modelled.
+
+The objective-based *Annual costs* charts are unchanged: they are the model's
+own accounting and stay consistent with the objective.
+
+| | Pro | Con |
+|---|---|---|
+| **Separate calibrated sections (chosen)** | Answers the regulated-cost question without touching the objective accounting; existing/new and inside/between are explicit | Needs a project file; one region only |
+| *Replace the grid rows of Annual costs with calibrated values* | One chart | Mixes regulated revenue into an objective breakdown; annual costs no longer sum to the objective |
+| *Branch view only* | Generic, no project file | Cannot show the existing internal grid, the add-ons or the tariff allocation the stakeholder asked about |
+
+**Reversibility: Easy** — drop `features.network_costs` (or toggle the two
+sections off under `plots:`).
+

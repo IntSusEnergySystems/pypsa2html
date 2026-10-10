@@ -76,6 +76,11 @@ pages:
     sections:
       - {id: sectoral_demands,       title: Sectoral demands,                builder: results.sectoral_demands, unit: TWh/year}
 
+  - id: heat
+    title: Heat supply
+    sections:
+      - {id: heat_supply_mix,        title: How residential and tertiary heat demand is met, builder: heat.supply_mix, unit: TWh/year}
+
   - id: costs
     title: Costs
     sections:
@@ -83,6 +88,14 @@ pages:
       - {id: clustered_costs,        title: Annual costs by group,           builder: results.clustered_costs,   unit: EUR/year}
       - {id: investment_costs,       title: Annual investment costs,         builder: results.investment_costs,  unit: EUR/year}
       - {id: operational_costs,      title: Annual operational costs,        builder: results.operational_costs, unit: EUR/year}
+      # Grids valued as the users pay for them: the regulated existing grid,
+      # its operating costs and add-ons, and the capacity the model adds.
+      # Needs `features.network_costs` (calibrated long table) for the
+      # distribution section and for the tariff view of transmission; the
+      # per-neighbour branch view is read from the networks and works for any
+      # real or group node.
+      - {id: network_costs_distribution, title: Distribution network costs, builder: network_costs.distribution, unit: MEUR/year}
+      - {id: network_costs_transmission, title: Transmission network costs, builder: network_costs.transmission, unit: MEUR/year}
 
   - id: capacities
     title: Capacities
@@ -107,6 +120,10 @@ pages:
       - {id: power_dispatch_summer,  title: Power dispatch (summer week),    builder: dispatch.power_summer, unit: GW}
       - {id: heat_dispatch_winter,   title: Heat dispatch (winter week),     builder: dispatch.heat_winter,  unit: GW}
       - {id: heat_dispatch_summer,   title: Heat dispatch (summer week),     builder: dispatch.heat_summer,  unit: GW}
+      # The district-heating bus alone (`urban central heat`), with a 5 MW
+      # display floor instead of 0.1 GW. Absent where the node has no network.
+      - {id: district_heat_dispatch_winter, title: District heating dispatch (winter week), builder: dispatch.district_heat_winter, unit: GW}
+      - {id: district_heat_dispatch_summer, title: District heating dispatch (summer week), builder: dispatch.district_heat_summer, unit: GW}
       # Electric vehicles: natural (uncontrolled) vs smart charging, V2G and
       # the fleet state of charge.  Absent from a model without EVs, in which
       # case the builder returns None and the section is simply not rendered.

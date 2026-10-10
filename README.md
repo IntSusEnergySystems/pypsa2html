@@ -143,7 +143,7 @@ landing:                               # what index.html opens on
 
 output:
   dir: results/times-pypsa/html
-  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  pages: [overview, emissions, sankeys, fec, demands, heat, costs, capacities, dispatch, maps]
 
 plots:                                 # per-section switches, keyed by section id
   ghg_cum_by_source: false
@@ -235,6 +235,73 @@ self_sufficiency(ctx, members=["BEWAL", "BEVLG", "BEBRU"])  # ad-hoc
 `config/pypsa-wal.yaml` declares a `BE` group with those three members so the
 HTML report has a Belgium page. See
 [D18](docs/DESIGN_DECISIONS.md#d18--self-sufficiency-is-two-ratios-and-a-members-list).
+
+### Point of attention — network costs
+
+The *Annual costs* charts value the grids as the optimiser sees them: the
+annuity of the capacity in the model.  That is not what the grids cost their
+users, and a reader comparing the *distribution network* row with a
+regulator's allowed revenue will find it several times too low (it was, in a
+stakeholder review of the pypsa-wal cabinet deck, Sept 2026).  Two sections at
+the bottom of the Costs page answer the question as it is asked:
+
+- **Distribution network costs** — electricity and gas *separately*, every
+  layer of the regulated revenue stacked: existing grid capital charges and
+  operating costs (exogenous, from the regulator's accounts), the
+  reinforcement and PV-hosting costs the model adds (hatched), the regulated
+  add-ons (public-service obligations, road-use fee, smart meters) and the
+  losses, with the regulator's own total marked as a reference.
+- **Transmission network costs** — a *tariff view* (what the region's users
+  pay: the national regulated revenue and the new inter-node lines times the
+  region's share of offtake, plus H₂ and CO₂ pipelines at 50/50) and one
+  *branch view* per network (each link to a neighbouring node, existing and
+  new, at model cost, 50/50).  The table under the chart says for every line
+  whether it is existing or new and whether it is inside the region or an
+  interconnection, and states that a one-bus region has no modelled internal
+  grid.
+
+Both read a calibrated long table the *project* writes next to its results
+(pypsa-wal: `csvs/network_costs_calibrated.csv`, columns
+`network, view, layer, item, year, value`, layers `L1` existing, `L2` new,
+`L3` OPEX, `L4` losses and add-ons, `memo` never added).  It describes one
+region, named in the config:
+
+```yaml
+features:
+  network_costs:
+    node: BEWAL                                  # the region the table describes
+    file: csvs/network_costs_calibrated.csv      # default
+    segments_file: csvs/network_cost_segments.csv  # optional tie to the segment chart
+    references:                                  # optional regulator totals
+      electricity_distribution: [{year: 2025, value: 896.3, label: CWaPE allowed revenue 2025}]
+```
+
+Without it the distribution section is skipped and transmission shows the
+branch view only — which is computed from the networks and works for any real
+or group node (a branch with both ends inside a group counts in full, as
+"inside"). See
+[D23](docs/DESIGN_DECISIONS.md#d23--network-costs-are-shown-as-the-users-pay-them-with-the-model-view-beside).
+
+### Point of attention — heat supply and district heating
+
+The **Heat supply** page answers "how is the residential and tertiary heat
+demand met": a pie by delivering technology, whose district-heating slice is
+expanded into a second pie, what feeds the network (one view per horizon, with
+the numbers in a table).  A heat bus shared with other users (agriculture on a
+decentral bus, industrial low-temperature heat or DAC on the district-heating
+bus) has its production shared out *pro rata* to each user's take, and heat
+storage is left out (it only moves heat in time), so the left pie sums exactly
+to the building heat load.  The pies sit in a fixed-size figure: a pie's radius
+depends on the pixel size of its domain, and a responsive figure would move
+the slice away from the connector lines.
+
+The Dispatch page carries the **district-heating bus alone**, winter and
+summer week, with CHP with and without capture, electric boilers and large heat
+pumps kept apart, the charging and discharging of pit / tank storage, and the
+storage level on a second axis — which is what explains a network that fills a
+seasonal store with electric boilers in summer.  Its display floor is 5 MW,
+not the 0.1 GW of the regional charts, which would erase most of a
+regional heat network.
 
 ### Sensitivity analyses (parameter sweeps)
 

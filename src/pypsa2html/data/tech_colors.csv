@@ -293,3 +293,6 @@ V2G,#e5ffa8
 V2G to grid,#f2a340
 waste,#e3d37d
 water tanks,#e69487
+End uses & conversion (heat / H2 / e-fuels / capture),#01889f
+Networks & storage,#fcc006
+Fossil fuels & imports,#9a0200

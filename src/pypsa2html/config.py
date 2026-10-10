@@ -246,6 +246,16 @@ class FeaturesConfig:
     #: ``location_port`` ({carrier: port}), ``source_patterns``,
     #: ``exclude_patterns`` -- see :func:`pypsa2html.extract.emissions.capped_emissions`.
     capped_emissions: dict | None = None
+    #: Calibrated network costs of one region -- see
+    #: :mod:`pypsa2html.extract.network_costs`.  ``None`` = no calibrated
+    #: table: the distribution section is skipped and transmission shows the
+    #: per-neighbour branch view only.  Keys: ``node`` (the region the table
+    #: describes, required), ``file`` (default
+    #: ``csvs/network_costs_calibrated.csv``), ``segments_file`` (default
+    #: ``csvs/network_cost_segments.csv``, ``null`` = none) and
+    #: ``references`` ({network: [{year, value, label}]}, regulator totals
+    #: marked on the charts).
+    network_costs: dict | None = None
 
     #: Accepted :attr:`nuclear_primary` values, mirrored in
     #: ``indicators.NUCLEAR_PRIMARY_LABELS``.
