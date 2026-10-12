@@ -17,33 +17,20 @@
 #   unit     axis/label unit, also written into the chart-data workbook
 
 pages:
-  - id: overview
-    title: Scenarios overview
-    kind: multi_scenario
-    sections:
-      - {id: cumulative_emissions,   title: Cumulative emissions,            builder: scenario.cumulative_emissions, unit: MtCO2eq}
-      - {id: energy_comparison,      title: Energy comparison,               builder: scenario.energy_comparison,    unit: TWh/year}
-      - {id: scenario_costs,         title: Annual costs,                    builder: scenario.costs,                unit: EUR/year}
-      - {id: scenario_investment,    title: Annual investment costs,         builder: scenario.investment_costs,     unit: EUR/year}
-      - {id: scenario_operational,   title: Annual operational costs,        builder: scenario.operational_costs,    unit: EUR/year}
-      - {id: scenario_capacities,    title: Capacities,                      builder: scenario.capacities,           unit: GW}
-      - {id: scenario_storage,       title: Storage capacities,              builder: scenario.storage_capacities,   unit: GWh}
-      - {id: scenario_cc,            title: CCS capacities (fuel input),     builder: scenario.cc_capacities,        unit: GW}
-      - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%'}
+  # ==========================================================================
+  # SCENARIO REPORT -- one run, nothing else (site: scenario, the default).
+  # ==========================================================================
 
-  # Parameter sweeps. Sections are GENERATED from the project config's
-  # `sensitivities:` block -- one per sweep -- so this page carries none of
-  # its own. With no sweep declared it has no sections and drops out of the
-  # site, which is what a report without sensitivities should look like.
-  #
-  # A sweep answers one question over a family of runs that differ in a single
-  # number, and it reads the same regardless of which region page you arrived
-  # from, so the region is pinned in the config and the page is shared.
-  - id: sensitivity
-    title: Sensitivity analyses
-    kind: sensitivity
-    shared: true
-    sections: []
+  # Landing page of a scenario report: the key figures of this run across the
+  # planning horizons (data/kpis.yaml + the project's `kpis:`), then three
+  # headline charts reusing builders of the pages below.
+  - id: key_figures
+    title: Key figures
+    sections:
+      - {id: key_figures,              title: Key figures,                     builder: keyfigures.scenario_table}
+      - {id: key_figures_ghg,          title: CO2 emissions by sector,         builder: indicators.ghg_by_sector, unit: MtCO2eq}
+      - {id: key_figures_costs,        title: Annual costs,                    builder: results.annual_costs,     unit: EUR/year}
+      - {id: key_figures_capacities,   title: Capacities,                      builder: results.capacities,       unit: GW}
 
   - id: emissions
     title: Emissions
@@ -139,3 +126,57 @@ pages:
       - {id: map_costs,              title: System cost map,                 builder: maps.costs}
       - {id: map_hydrogen,           title: Hydrogen network,                builder: maps.hydrogen}
       - {id: map_gas,                title: Gas network,                     builder: maps.gas}
+
+  # ==========================================================================
+  # COMPARISON REPORT -- several runs, read from their summary files (D24).
+  # Built by `pypsa2html compare`, or by `build` when it builds two or more
+  # scenarios.  Pages list under `compare.pages`, not `output.pages`.
+  # ==========================================================================
+
+  # The key figures of every scenario side by side, for one year, with the
+  # difference to the reference scenario one click away.
+  - id: key_figures
+    site: compare
+    title: Key figures
+    sections:
+      - {id: compare_key_figures,      title: Key figures,                     builder: comparison.key_figures}
+      - {id: compare_kpi_charts,       title: Key figures over time,           builder: comparison.kpi_charts}
+
+  - id: overview
+    site: compare
+    title: Comparison charts
+    sections:
+      - {id: cumulative_emissions,   title: Cumulative emissions,            builder: scenario.cumulative_emissions, unit: MtCO2eq}
+      - {id: energy_comparison,      title: Energy comparison,               builder: scenario.energy_comparison,    unit: TWh/year}
+      - {id: scenario_costs,         title: Annual costs,                    builder: scenario.costs,                unit: EUR/year}
+      - {id: scenario_investment,    title: Annual investment costs,         builder: scenario.investment_costs,     unit: EUR/year}
+      - {id: scenario_operational,   title: Annual operational costs,        builder: scenario.operational_costs,    unit: EUR/year}
+      - {id: scenario_capacities,    title: Capacities,                      builder: scenario.capacities,           unit: GW}
+      - {id: scenario_storage,       title: Storage capacities,              builder: scenario.storage_capacities,   unit: GWh}
+      - {id: scenario_cc,            title: CCS capacities (fuel input),     builder: scenario.cc_capacities,        unit: GW}
+      - {id: energy_independence,    title: Energy independence,             builder: scenario.energy_independence,  unit: '%'}
+
+  # Parameter sweeps. Sections are GENERATED from the project config's
+  # `sensitivities:` block -- one per sweep -- so this page carries none of
+  # its own. With no sweep declared it has no sections and drops out of the
+  # site, which is what a report without sensitivities should look like.
+  #
+  # A sweep answers one question over a family of runs that differ in a single
+  # number, and it reads the same regardless of which region page you arrived
+  # from, so the region is pinned in the config and the page is shared.
+  - id: sensitivity
+    site: compare
+    title: Sensitivity analyses
+    kind: sensitivity
+    shared: true
+    sections: []
+
+  # Where every number comes from: one row per scenario with its results tree,
+  # solve date, pypsa2html version and summary status, and a warning when the
+  # runs are not of one vintage.
+  - id: scenarios
+    site: compare
+    title: Scenarios
+    shared: true
+    sections:
+      - {id: compare_scenarios,        title: Scenarios compared,              builder: comparison.provenance}

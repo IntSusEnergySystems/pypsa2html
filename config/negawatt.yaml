@@ -62,13 +62,19 @@ scenarios:
 landing:
   scenario: ref
   node: BE
-  page: overview
+  page: key_figures
 
 output:
   dir: results/{scenario}/html
-  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  pages: [key_figures, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true
   plotly: cdn
+
+# The comparison report, built from every scenario's summary.csv/summary.json
+# by `pypsa2html build` (two or more scenarios) or `pypsa2html compare`.
+compare:
+  reference: ref
+  dir: results/compare
 
 plots:
   ghg_cum_by_source: false

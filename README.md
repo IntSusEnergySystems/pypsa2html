@@ -1,9 +1,9 @@
 # pypsa2html
 
-Turn solved [PyPSA](https://pypsa.org)(-Eur) networks into a navigable,
-self-contained HTML report: Sankey diagrams, emissions, energy balances, costs,
-capacities, dispatch and maps — one set of pages per region, with a scenario
-switcher.
+Turn solved [PyPSA](https://pypsa.org)(-Eur) networks into navigable,
+self-contained HTML reports: Sankey diagrams, emissions, energy balances, costs,
+capacities, dispatch and maps — one set of pages per region for every scenario,
+plus a comparison report that sets the scenarios side by side.
 
 It is a model-agnostic successor to earlier reporting scripts used in the négaWatt
 PyPSA-Eur studies. Regions, planning horizons and navigation are *detected from
@@ -75,35 +75,58 @@ skipped with a warning rather than failing the run.
 
 ## Use
 
-Point a YAML config at your results and build:
+pypsa2html writes two kinds of report:
+
+- a **scenario report** per solved run — every page of one run, opening on its
+  *Key figures*, with no reference to any other run. Next to its pages it writes
+  `summary.csv` / `summary.json`: every number a comparison needs, with where it
+  came from;
+- a **comparison report** — the key figures of several runs side by side with
+  their difference to a reference run, the comparison charts, the parameter
+  sweeps and a provenance page. It is built **from the summary files only**, so it
+  never reopens a network and can combine runs solved on different machines.
 
 ```bash
-pypsa2html inspect --config config/pypsa-wal.yaml   # what would be built
-pypsa2html build   --config config/pypsa-wal.yaml   # build it
-pypsa2html pages                                    # list toggleable sections
+pypsa2html inspect   --config config/pypsa-wal.yaml               # what would be built
+pypsa2html build     --config config/pypsa-wal.yaml -s scen_central   # one scenario report
+pypsa2html build     --config config/pypsa-wal.yaml               # every scenario + the comparison
+pypsa2html compare   --config config/pypsa-wal.yaml \
+    results/walloon/scen_central results/walloon/scen_nuc4gw --reference scen_central
+pypsa2html summarize --config config/pypsa-wal.yaml -s scen_nuc4gw   # summary only (e.g. on a cluster)
+pypsa2html kpis      --config config/pypsa-wal.yaml               # the key figures defined
+pypsa2html pages                                                  # list toggleable sections
 ```
+
+`compare` takes results trees, HTML folders or `summary.json` files; with none it
+compares `compare.scenarios`, else every configured scenario. A scenario whose
+summary is missing is listed as *not compared*; one older than its results tree
+is used with a warning (`compare.on_stale`), or rebuilt with `--recompute`.
 
 Or from Python:
 
 ```python
-from pypsa2html import load_config, build_site
+from pypsa2html import load_config, build_site, compare_site
 
-report = build_site(load_config("config/pypsa-wal.yaml"))
+cfg = load_config("config/pypsa-wal.yaml")
+build_site(cfg, scenarios=["scen_central"])
+report = compare_site(cfg, ["results/walloon/scen_central", "results/walloon/scen_nuc4gw"])
 print(report.summary())
 ```
 
 `inspect` is the fast way to check a config — it reads one network per scenario
-and prints what it found:
+and prints what it found, including whether its summary is up to date:
 
 ```
 project   : PyPSA-Wal
-landing   : BEWAL / scen_demande_haute / overview
+landing   : BEWAL / scen_central / key_figures
+compare   : results/walloon/compare  (pages: key_figures, overview, sensitivity, scenarios)
 
-scenario 'scen_demande_haute' (High demand)
+scenario 'scen_central' (Central)
+    summary  : ok
     horizons : [2025, 2030, 2040, 2050]
     nodes    : BEBRU(Brussels), BEVLG(Flanders), BEWAL(Wallonia), DE(Germany),
                FR(France), GB(Great Britain), LU(Luxembourg), NL(Netherlands),
-               ALL(All regions)
+               BE(Belgium), ALL(All regions)
     focus    : BEWAL
 ```
 
@@ -139,11 +162,27 @@ scenarios:
 landing:                               # what index.html opens on
   scenario: scen_demande_haute
   node: BEWAL
-  page: overview
+  page: key_figures
 
 output:
-  dir: results/times-pypsa/html
-  pages: [overview, emissions, sankeys, fec, demands, heat, costs, capacities, dispatch, maps]
+  dir: results/times-pypsa/{scenario}/html
+  pages: [key_figures, emissions, sankeys, fec, demands, heat, costs, capacities, dispatch, maps]
+  compare_url: ../../compare/index.html  # optional link from every scenario page
+
+compare:                               # the comparison report
+  reference: scen_base                 # differences are taken against this run
+  dir: results/times-pypsa/compare
+  pages: [key_figures, overview, sensitivity, scenarios]
+
+kpis:                                  # key figures: merged by id over data/kpis.yaml
+  - {id: elec_price_p95, enabled: false}
+  - id: wal_ft
+    group: Power-to-X
+    source: csv                        # a long table the project writes
+    file: csvs/ptx_report.csv
+    filters: {section: "PtX TWh in", metric: "Fischer-Tropsch @ {node}"}
+    nodes: [BEWAL]
+    unit: TWh/year
 
 plots:                                 # per-section switches, keyed by section id
   ghg_cum_by_source: false
@@ -215,7 +254,7 @@ cost of flexibility (charger and V2G round-trip losses) is reported by
 
 Each region's Energy consumption page has two self-sufficiency sections
 (primary energy and electricity, as percent and as a TWh balance). The
-overview page compares the same ratios across scenarios. Both are unclipped:
+comparison report compares the same ratios across scenarios. Both are unclipped:
 a net exporter is above 100 %. Nuclear generation counts as domestic
 electricity and as imported primary energy.
 
@@ -325,37 +364,81 @@ sensitivities:
     description: "<p>Optional HTML above the chart.</p>"
 ```
 
-A scenario carrying `sensitivity:` is a **sweep point**: no pages of its own, absent
-from the scenario dropdown and from the cross-scenario overview. Each sweep becomes
-one section (`sensitivity_<id>`) of the shared **Sensitivity analyses** page, with two
+A scenario carrying `sensitivity:` is a **sweep point**: no pages of its own, and it
+is never set beside the scenarios in the comparison. `build` writes only its summary
+file. Each sweep becomes one section (`sensitivity_<id>`) of the **Sensitivity
+analyses** page of the *comparison report*, read from the points' summaries, with two
 views in a dropdown — the swept value on the x axis with one line per planning
 horizon, and the same numbers over time with one line per swept value. With no
 sweep declared the page does not exist.
 
-A metric names a table any PyPSA-Eur results tree produces:
-
-| `table` | `kind` / `field` | rows are | default unit |
-|---|---|---|---|
-| `capacity` | `power` · `storage` · `ccs` | grouped technology names | GW / GWh |
-| `cost` | `total` · `capital` · `marginal` · `clustered` | grouped technology names | EUR/year |
-| `indicator` | `field:` an `Indicators` frame (`ghg_sector`, `fec_carrier`, …) | taxonomy codes | — |
-
-`rows:` are summed; omit it to sum the whole table. A row the run did not build
-reads **zero** — a point on the curve. A point whose table is missing entirely
+A metric is the same object as a key figure (next section): any `source` of
+[`metrics.py`](src/pypsa2html/metrics.py) works, `table:` being the older name of
+`source:`. `rows:` are summed; omit it to sum the whole table. A row the run did not
+build reads **zero** — a point on the curve. A point whose table is missing entirely
 reads *missing*, so the line breaks instead of dropping to the origin.
 
 `pypsa2html inspect` prints each sweep, its points and any that are unsolved. See
 [D22](docs/DESIGN_DECISIONS.md#d22--a-parameter-sweep-is-a-section-not-a-set-of-scenarios).
 
+### Key figures (KPIs)
+
+A scenario report opens on its **Key figures**: a table of indicators across the
+planning horizons. The comparison report shows the same indicators for every
+scenario, one year at a time, with a *values / difference / difference (%)*
+selector against the reference scenario, and writes them all to
+`comparison.csv` (scenario × node × KPI × year, with the difference).
+
+The indicators are declared, not coded. The packaged set,
+[`data/kpis.yaml`](src/pypsa2html/data/kpis.yaml), covers the system cost and CO₂
+price, emissions, CO₂ captured by origin and stored, final and primary energy,
+self-sufficiency, electricity generation by technology, curtailment, nodal price
+statistics, regional costs and capacities. A project's `kpis:` list is merged over
+it **by id** — override a field, drop one with `enabled: false`, add its own, place
+it with `after: <id>`. A KPI reads one of these sources:
+
+| `source` | `kind` / `field` | rows are | default unit |
+|---|---|---|---|
+| `capacity` | `power` · `storage` · `ccs` | grouped technology names | GW / GWh |
+| `cost` | `total` · `capital` · `marginal` · `clustered` | grouped technology names | EUR/year |
+| `indicator` | `field:` an `Indicators` frame (`ghg_sector`, `fec_carrier`, …) | taxonomy codes | — |
+| `self_sufficiency` | `ratio` · `primary` · `electricity` | `primary`, `electricity` / `domestic`, `net_import` | % / TWh |
+| `flow` | `energy` · `co2` | graph edges `Source>Target>Type`, globs allowed | TWh / MtCO₂ |
+| `balance` | a bus carrier, or `electricity` (AC + low voltage), `hydrogen`, `gas` | `supply:<carrier>`, `withdrawal:<carrier>`, `curtailment:<carrier>`, `potential:<carrier>` (raw PyPSA carriers) | TWh |
+| `price` | same | `mean`, `load_weighted_mean`, `p05`, `median`, `p95`, `hours_above_100`, `hours_above_200`, `hours_below_1` | EUR/MWh, h |
+| `global` | `objective` · `constraints` | constraint names; `{node}` allowed (`co2_limit_per_country{node}`) | EUR |
+| `csv` | `file:` a long table in the results tree, `filters:` on its columns (`{node}` substituted); or `format: pypsa_summary` for `csvs/metrics.csv` and its siblings | — | — |
+| `ratio` | `numerator` / `denominator`: KPI ids or inline metrics | — | % |
+
+`balance` exists because the energy graph groups technologies for the Sankey
+(CCGT with and without capture, ground and rooftop PV); a key figure needs the raw
+carrier. `pypsa2html kpis --summary <dir>` lists the row labels a summary carries,
+to write `rows:` against. See
+[D24](docs/DESIGN_DECISIONS.md#d24--a-scenario-report-is-self-contained-the-comparison-reads-summaries).
+
+
+
 ### Output
 
-One directory containing `index.html` (redirecting to the landing page) plus
-`<node>_<page>_<scenario>.html` for every combination, and
-`<page>_<scenario>.html` for pages that do not depend on the region. Region and
-scenario dropdowns are generated from the detected node set and the configured
-scenario list.
+**Scenario report** — one directory per scenario (`output.dir`, which may contain
+`{scenario}`) holding `index.html` (redirecting to the scenario's landing page,
+`<focus>_key_figures_<scenario>.html`), `<node>_<page>_<scenario>.html` for every
+node and page, `<page>_<scenario>.html` for pages that do not depend on the region,
+`graph_imbalances.csv`, and the two summary files:
 
----
+| file | content |
+|---|---|
+| `summary.csv` | `node, table, row, year, value, unit` — every table the comparison reads (capacities, costs, indicator frames, self-sufficiency, energy and CO₂ graph edges, electricity balance and prices per node; objective and constraint duals under `_system`) and every KPI (`table = kpi`) |
+| `summary.json` | schema and pypsa2html versions, build and solve dates, the scenario, horizons, nodes, every input file with its size and mtime, the number-changing settings, the KPI definitions' digests, the tables present and any table that failed |
+
+When several scenarios share one output directory, their summaries go to
+`summaries/<scenario>/`.
+
+**Comparison report** — `compare.dir` (default `compare/` under the scenarios'
+common output root) holding `<node>_key_figures_compare.html`,
+`<node>_overview_compare.html`, `sensitivity_compare.html`,
+`scenarios_compare.html`, `comparison.csv` and `index.html`. A `build` of several
+scenarios also writes an `index.html` at their common root, pointing at it.
 
 ## Code structure
 
@@ -374,12 +457,16 @@ pypsa2html/
 │   ├── pages.py                   the page manifest
 │   ├── context.py                 BuildContext — replaces the `snakemake` global
 │   ├── indicators.py              flow algebra (fec, pec, ghg, coverage, self-sufficiency)
-│   ├── build.py                   manifest × nodes × scenarios → files
-│   ├── cli.py                     build / inspect / pages
+│   ├── metrics.py                 metric / KPI definitions, ScenarioData, evaluation
+│   ├── summary.py                 summary.csv/json: writer, reader, freshness check
+│   ├── build.py                   manifest × nodes → one scenario report (+ summary)
+│   ├── compare.py                 summaries → the comparison report
+│   ├── cli.py                     build / compare / summarize / kpis / inspect / pages
 │   ├── extract/                   solved network → tidy flow tables
 │   │   ├── flows.py                 energy flows
 │   │   ├── emissions.py             carbon flows
-│   │   ├── balance.py               nodal supply/demand time series
+│   │   ├── balance.py               nodal supply/demand time series, annual balance
+│   │   ├── prices.py                nodal price statistics
 │   │   └── ev.py                    EV charging: natural vs smart, V2G
 │   ├── charts/                    tidy tables → plotly figures
 │   │   ├── base.py                  shared chart helpers
@@ -387,7 +474,9 @@ pypsa2html/
 │   │   ├── results.py               costs, capacities, demands
 │   │   ├── dispatch.py  maps.py     time series, geographic maps
 │   │   ├── ev.py                    EV charging weeks + annual split
-│   │   ├── scenario.py              multi-scenario overview
+│   │   ├── keyfigures.py            key-figures table of one scenario
+│   │   ├── comparison.py            comparison key figures, KPI charts, provenance
+│   │   ├── scenario.py              comparison charts (with difference views)
 │   │   └── sensitivity.py           parameter sweeps (config-declared)
 │   ├── report/                    HTML assembly (jinja2 template + renderer)
 │   └── data/                      the packaged taxonomy — CSV + YAML
@@ -395,10 +484,13 @@ pypsa2html/
     └── data/negawatt-ref/         116 kB of real négaWatt output as fixtures
 ```
 
-**Data flow.** `config.yaml` + the solved networks → `BuildContext` →
-`extract.*` produces tidy flow tables → `indicators` derives the energy-system
-indicators → `charts.*` builds plotly figures → `report.render` assembles pages
-from the manifest.
+**Data flow.** *Scenario report:* `config.yaml` + the solved networks →
+`BuildContext` → `extract.*` produces tidy flow tables → `indicators` derives the
+energy-system indicators → `charts.*` builds plotly figures → `report.render`
+assembles pages from the manifest → `summary` writes the scenario's numbers.
+*Comparison report:* the summary files of several scenarios →
+`SummaryScenarioData` → `CompareContext` → `charts.comparison` /
+`charts.scenario` / `charts.sensitivity` → the same `report.render`.
 
 **Configuration formats.** Taxonomy tables are **CSV** (diffable, mergeable,
 still Excel-openable); settings and structure are **YAML** (comments matter).
@@ -432,7 +524,10 @@ double as regression guards.
 ## Snakemake integration
 
 `pypsa2html` is an ordinary library, so a workflow can use it when installed and
-skip the rule otherwise:
+skip the rules otherwise. One rule per run writes that run's report and summary;
+one rule compares the runs, taking their *summaries* as inputs — small files, so
+the comparison is a real Snakemake dependency instead of a rule that reads sibling
+trees behind the workflow's back:
 
 ```python
 try:
@@ -449,16 +544,34 @@ if HAVE_PYPSA2HTML:
             config="config/pypsa2html.yaml",
         output:
             index=RESULTS + "html/index.html",
+            summary=RESULTS + "html/summary.json",
         log:
             RESULTS + "logs/pypsa2html.log",
         run:
+            from pathlib import Path
             from pypsa2html import build_site, load_config
-            build_site(load_config(input.config))
+            name = config["run"]["name"]
+            cfg = load_config(input.config, overrides={"output": {"dir": str(Path(output.index).parent)}})
+            build_site(cfg.with_scenario(name, Path(output.index).parent.parent), scenarios=[name])
+
+    rule generate_html_comparison:
+        input:
+            summaries=expand("results/{run}/html/summary.json", run=COMPARED_RUNS),
+            config="config/pypsa2html.yaml",
+        output:
+            index="results/compare/index.html",
+        run:
+            from pathlib import Path
+            from pypsa2html import compare_site, load_config
+            compare_site(load_config(input.config),
+                         [Path(p).parent for p in input.summaries],
+                         out_dir=Path(output.index).parent)
 ```
 
 Unlike the rules it replaces, this declares the inputs it actually reads. The
 originals declared nine inputs of which four were never read, and read a further
-nine files by hardcoded path that Snakemake therefore could not track.
+nine files by hardcoded path that Snakemake therefore could not track. A complete
+pair of rules is in [`examples/snakemake/`](examples/snakemake/).
 
 ---
 
@@ -476,6 +589,7 @@ nine files by hardcoded path that Snakemake therefore could not track.
 | EV charging (natural vs smart, V2G) | `extract/ev` `charts/ev` | new, tested |
 | Self-sufficiency (primary energy, electricity) | `indicators` `charts/indicators` `charts/scenario` | new, tested |
 | Sensitivity analyses (parameter sweeps) | `config` `pages` `charts/sensitivity` | new, tested |
+| Scenario summaries, key figures, comparison report | `metrics` `summary` `compare` `charts/keyfigures` `charts/comparison` `extract/prices` | new, tested |
 
 ---
 
@@ -568,7 +682,8 @@ performed ~400 disk loads (~0.8 s each). Fixes:
 - default cache size = number of horizons (`model.network_cache_size: null`);
 - process-wide path cache so overview / multi-scenario builds share loads;
 - shared `BuildContext` pool across scenarios so overview does not re-extract
-  every node three times.
+  every node three times (superseded 2026-10-12: the comparison reads summary
+  files, and a scenario build releases its networks before the next one — D24).
 
 **Memory bound (2026-10-06).** `model.network_cache_size` is now a real,
 process-wide bound on the solved networks kept in RAM. The path cache is the only
@@ -580,9 +695,10 @@ Before, the path cache kept up to 24 networks whatever the setting, and every
 * Measured on pypsa-wal, one scenario with four 1 h networks of about 2.5 GB each:
   7.8 GB peak and 36 min with the bound at 2, against more than 10 GB (OOM in a 10 GB cgroup)
   without it.
-* A one-scenario build still reads every configured scenario whose results
-  tree exists on disk, for the scenario-comparison charts. List only scenarios
-  of the same vintage.
+* ~~A one-scenario build still reads every configured scenario whose results
+  tree exists on disk, for the scenario-comparison charts.~~ Since 2026-10-12 a
+  scenario build reads its own networks only; the comparison reads the
+  scenarios' summary files and flags mixed vintages (D24).
 
 pypsa-wal full site: **~832 s → ~131 s** (12 network loads). Items 9–10:
 dispatch HTML is thinner (`dispatch_step_hours: 2`) and identical map PNGs are

@@ -50,7 +50,6 @@ def _render(node_set, scenarios, project, page_id="emissions", plotly="cdn"):
         node=node_set["BEWAL"],
         nodes=node_set,
         scenario=scenarios[0],
-        scenarios=scenarios,
         project=project,
         plotly=plotly,
     )
@@ -192,6 +191,13 @@ def test_landing_filename_from_config(minimal_config):
     assert _landing_filename(cfg, manifest) == "AA_emissions_demo.html"
 
 
+def test_landing_filename_for_another_scenario(minimal_config):
+    """Each scenario's own index.html opens on that scenario's page."""
+    cfg = load_config(minimal_config)
+    manifest = load_manifest(include_pages=cfg.output.pages)
+    assert _landing_filename(cfg, manifest, scenario="other") == "AA_emissions_other.html"
+
+
 def test_landing_falls_back_when_the_page_is_disabled(minimal_config):
     cfg = load_config(minimal_config)
     manifest = load_manifest(include_pages=["sankeys"])
@@ -235,29 +241,22 @@ def test_per_scenario_dir_requires_a_scenario(tmp_path):
         cfg.output_dir()
 
 
-def test_scenario_prefixes_are_relative(tmp_path):
-    from pypsa2html.build import _scenario_prefixes
-
-    cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
-    prefixes = _scenario_prefixes(cfg, "alpha")
-    assert prefixes["alpha"] == ""
-    assert prefixes["beta"] == "../../beta/html/"
-
-
-def test_scenario_prefixes_empty_when_sharing_a_dir(tmp_path):
-    from pypsa2html.build import _scenario_prefixes
-
-    cfg = _two_scenario_config(tmp_path, "results/html")
-    assert _scenario_prefixes(cfg, "alpha") == {"alpha": "", "beta": ""}
-
-
 def test_common_output_root(tmp_path):
     cfg = _two_scenario_config(tmp_path, "results/{scenario}/html")
     assert cfg.common_output_root() == (tmp_path / "results").resolve()
 
 
-def test_scenario_switcher_uses_the_prefix(node_set, scenarios, minimal_config):
-    """A page must link across scenario directories, not to a bare filename."""
+def test_a_scenario_page_has_no_scenario_switcher(node_set, scenarios, minimal_config):
+    """A report built alone cannot know its siblings: the old switcher pointed
+    at pages that were never built (pypsa-wal 1 Oct central, D24)."""
+    project = load_config(minimal_config).project
+    html = _render(node_set, scenarios, project)
+    assert 'id="p2h-scenario"' not in html
+    assert "P2H.prefix" not in html
+    assert 'id="p2h-node"' in html
+
+
+def test_compare_link_and_subtitle_in_the_top_bar(node_set, scenarios, minimal_config):
     project = load_config(minimal_config).project
     manifest = load_manifest()
     page = manifest["emissions"]
@@ -268,11 +267,35 @@ def test_scenario_switcher_uses_the_prefix(node_set, scenarios, minimal_config):
         node=node_set["BEWAL"],
         nodes=node_set,
         scenario=scenarios[0],
-        scenarios=scenarios,
         project=project,
-        scenario_prefixes={scenarios[0].name: "../../other/html/"},
+        subtitle="Demo run",
+        links=[{"label": "Compare scenarios", "href": "../compare/index.html"}],
     )
-    assert '"../../other/html/"' in html
+    assert 'href="../compare/index.html"' in html
+    assert "Demo run" in html
+    assert "scenario <strong>Demo</strong>" in html
+
+
+def test_file_tag_names_every_link(node_set, scenarios, minimal_config):
+    """The comparison renders through the same template with its own tag."""
+    project = load_config(minimal_config).project
+    manifest = load_manifest(site="compare")
+    page = manifest["key_figures"]
+    html = render_page(
+        page=page,
+        manifest=manifest,
+        sections=[RenderedSection(id="s", title="S", body="")],
+        node=node_set["BEWAL"],
+        nodes=node_set,
+        scenario=scenarios[0],
+        project=project,
+        file_tag="compare",
+        footer="comparison of 2 scenarios",
+    )
+    assert 'href="BEWAL_overview_compare.html"' in html
+    assert 'href="scenarios_compare.html"' in html
+    assert "comparison of 2 scenarios" in html
+    assert '"tag": "compare"' in html or "tag: \"compare\"" in html
 
 
 def test_write_index_points_at_the_landing_page(tmp_path):
@@ -281,3 +304,44 @@ def test_write_index_points_at_the_landing_page(tmp_path):
     assert path.name == "index.html"
     assert "BEWAL_overview_ref.html" in text
     assert "http-equiv='refresh'" in text
+
+
+def test_build_site_writes_pages_summary_and_index(minimal_config):
+    """A scenario build ends with its summary, even when every extractor fails."""
+    import json
+
+    from pypsa2html.build import build_site
+
+    cfg = load_config(minimal_config)
+    report = build_site(cfg)
+    out = cfg.output_dir("demo")
+    assert (out / "index.html").exists()
+    assert "AA_emissions_demo.html" in (out / "index.html").read_text()
+    summary = cfg.summary_dir("demo") / "summary.json"
+    assert summary in report.summaries
+    meta = json.loads(summary.read_text())
+    assert meta["scenario"]["name"] == "demo"
+    assert meta["horizons"] == [2030, 2040]
+    # One scenario: no comparison report.
+    assert report.index is None
+    assert not cfg.compare_dir().exists()
+
+
+def test_build_site_rejects_an_unknown_scenario(minimal_config):
+    from pypsa2html.build import build_site
+
+    with pytest.raises(KeyError, match="unknown scenario"):
+        build_site(load_config(minimal_config), scenarios=["typo"])
+
+
+def test_cli_parses_compare():
+    from pypsa2html.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["compare", "-c", "x.yaml", "results/a", "results/b", "--reference", "a",
+         "--recompute"]
+    )
+    assert [str(p) for p in args.sources] == ["results/a", "results/b"]
+    assert args.reference == "a" and args.recompute
+    build = build_parser().parse_args(["build", "-c", "x.yaml", "--no-compare"])
+    assert build.compare is False

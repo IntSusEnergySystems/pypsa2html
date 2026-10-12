@@ -88,29 +88,36 @@ def render_page(
     node,
     nodes,
     scenario,
-    scenarios,
     project,
     plotly: str = "cdn",
     scenario_note: str = "",
-    scenario_prefixes: dict[str, str] | None = None,
+    file_tag: str | None = None,
+    subtitle: str = "",
+    links: list[dict] | None = None,
+    footer: str | None = None,
 ) -> str:
     """Render one HTML page.
 
-    ``scenario_prefixes`` maps a scenario name to the relative path from this
-    page's directory to that scenario's output directory, so the scenario
-    switcher works whether all scenarios share one folder or each lives beside
-    its own results tree.
+    A page belongs to one report -- a scenario's, or the comparison -- and
+    links only within it: there is no scenario dropdown, because a scenario
+    report built alone cannot know which other reports exist (D24).
+    ``file_tag`` is the last part of every file name (the scenario name, or
+    the comparison's ``compare.name``); ``links`` are extra entries of the top
+    bar (``{label, href}``), e.g. "Compare scenarios"; ``footer`` replaces the
+    default "scenario <label>" footer text (HTML).
     """
-    prefixes = scenario_prefixes or {s.name: "" for s in scenarios}
+    tag = file_tag or scenario.name
     nav = [
         {
             "id": p.id,
             "title": p.title,
-            "href": p.filename(node.code, scenario.name),
+            "href": p.filename(node.code, tag),
             "shared": p.shared,
         }
         for p in manifest
     ]
+    if footer is None:
+        footer = f"scenario <strong>{html.escape(str(scenario.label))}</strong>"
     template = _env().get_template("page.html.j2")
     return template.render(
         project=project,
@@ -122,8 +129,10 @@ def render_page(
         node=node,
         nodes=list(nodes),
         scenario=scenario,
-        scenarios=[{"name": s.name, "label": s.label} for s in scenarios],
-        scenario_prefixes={s.name: prefixes.get(s.name, "") for s in scenarios},
+        file_tag=tag,
+        subtitle=subtitle,
+        links=list(links or []),
+        footer=footer,
         plotly_js=PLOTLY_CDN if plotly == "cdn" else "",
         scenario_note=scenario_note,
         version=__version__,

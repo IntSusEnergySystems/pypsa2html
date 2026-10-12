@@ -1,0 +1,133 @@
+# Key figures -- the default indicator set of the key-figures tables.
+#
+# Each entry is a metric (see pypsa2html/metrics.py for the sources) with an
+# identity.  A project's own `kpis:` list is merged over this one BY ID:
+#
+#   kpis:
+#     - {id: cap_nuclear, label: Nuclear fleet}        # override one field
+#     - {id: elec_price_p95, enabled: false}           # remove a default
+#     - id: wal_ft                                     # add a project KPI
+#       group: Power-to-X
+#       source: csv
+#       file: csvs/ptx_report.csv
+#       filters: {section: "PtX TWh in", metric: "Fischer-Tropsch @ {node}"}
+#       unit: TWh/year
+#
+# `kpi_defaults: false` in the project config starts from an empty list.
+#
+# Fields: id, label, group, unit, scale, decimals, better (lower|higher, colours
+# the difference to the reference scenario), scope (node|system), nodes (only
+# these regions), source, kind, field, rows, exclude, match (exact|glob),
+# missing (zero|none) -- plus file/format/filters/year_column/value_column for
+# `csv` and numerator/denominator for `ratio`.
+#
+# The selections below are model-agnostic: grouped technology names
+# (data/tech_groups.csv, view `capacities`), taxonomy codes (data/nodes.csv),
+# energy- and carbon-graph edges `Source>Target>Type`, and raw PyPSA-Eur
+# carriers for `balance`.
+
+kpis:
+  # -- system-wide -----------------------------------------------------------
+  - {id: objective, group: System, label: Total system cost (objective),
+     source: global, kind: objective, scale: 1.0e-6, unit: MEUR/year, decimals: 0,
+     better: lower}
+  - {id: co2_price, group: System, label: CO2 price (dual of the CO2 cap),
+     source: global, kind: constraints, rows: [CO2Limit], scale: -1.0,
+     unit: EUR/tCO2, decimals: 0}
+
+  # -- emissions ---------------------------------------------------------------
+  - {id: ghg_net, group: Emissions, label: Net GHG emissions,
+     source: indicator, field: ghg_sector, unit: MtCO2eq/year, better: lower}
+  - {id: ghg_cumulative, group: Emissions, label: Cumulative GHG emissions,
+     source: indicator, field: ghg_sector_cum, unit: MtCO2eq, better: lower}
+
+  # -- carbon capture ------------------------------------------------------------
+  - {id: co2_captured, group: Carbon capture, label: CO2 captured,
+     source: flow, kind: co2, rows: ["*>stm>*"], unit: MtCO2/year}
+  - {id: co2_captured_process, group: Carbon capture, label: "  of which industrial process emissions",
+     source: flow, kind: co2, rows: ["pro_ghg>stm>*"], unit: MtCO2/year}
+  - {id: co2_captured_fossil, group: Carbon capture, label: "  of which fossil fuels",
+     source: flow, kind: co2, rows: ["gas_ghg>stm>*", "col_ghg>stm>*", "oil_ghg>stm>*", "wst_ghg>stm>*"],
+     unit: MtCO2/year}
+  - {id: co2_captured_biogenic, group: Carbon capture, label: "  of which biomass and biogas",
+     source: flow, kind: co2, rows: ["bm_ghg>stm>*", "bmc_ghg>stm>*", "blg_ghg>stm>*"],
+     unit: MtCO2/year}
+  - {id: co2_captured_dac, group: Carbon capture, label: "  of which direct air capture",
+     source: flow, kind: co2, rows: ["atm>stm>*"], unit: MtCO2/year}
+  - {id: co2_sequestered, group: Carbon capture, label: CO2 sent to storage,
+     source: flow, kind: co2, rows: ["stm>seq>*"], unit: MtCO2/year}
+  - {id: co2_utilised, group: Carbon capture, label: CO2 used in synthetic fuels,
+     source: flow, kind: co2, rows: ["stm>met_ghg>*", "stm>oil_ghg>*", "stm>gas_ghg>*"],
+     unit: MtCO2/year}
+
+  # -- energy ----------------------------------------------------------------------
+  - {id: fec_total, group: Energy, label: Final energy consumption,
+     source: indicator, field: fec_carrier, unit: TWh/year}
+  - {id: pec_total, group: Energy, label: Primary energy supply,
+     source: indicator, field: pec, unit: TWh/year}
+  - {id: ss_primary, group: Energy, label: Self-sufficiency — primary energy,
+     source: self_sufficiency, kind: ratio, rows: [primary], unit: "%", decimals: 1,
+     better: higher}
+  - {id: ss_electricity, group: Energy, label: Self-sufficiency — electricity,
+     source: self_sufficiency, kind: ratio, rows: [electricity], unit: "%", decimals: 1,
+     better: higher}
+
+  # -- electricity -------------------------------------------------------------------
+  - {id: elec_net_import, group: Electricity, label: Net electricity import,
+     source: self_sufficiency, kind: electricity, rows: [net_import], unit: TWh/year}
+  - {id: elec_nuclear, group: Electricity, label: Nuclear generation,
+     source: balance, kind: electricity, rows: ["supply:nuclear"]}
+  - {id: elec_solar, group: Electricity, label: Solar PV generation,
+     source: balance, kind: electricity, rows: ["supply:solar*"]}
+  - {id: elec_wind, group: Electricity, label: Wind generation,
+     source: balance, kind: electricity, rows: ["supply:onwind", "supply:offwind*"]}
+  - {id: elec_gas, group: Electricity, label: Gas-fired generation,
+     source: balance, kind: electricity,
+     rows: ["supply:CCGT*", "supply:OCGT", "supply:*gas CHP*"]}
+  - {id: elec_battery, group: Electricity, label: Battery discharge,
+     source: balance, kind: electricity, rows: ["supply:*battery discharger"]}
+  - {id: curtailment_share, group: Electricity, label: Curtailment of variable renewables,
+     source: ratio, numerator: {source: balance, kind: electricity, rows: ["curtailment:*"]},
+     denominator: {source: balance, kind: electricity, rows: ["potential:*"]},
+     unit: "%", decimals: 1, better: lower}
+  - {id: elec_price_mean, group: Electricity, label: Electricity price (load-weighted mean),
+     source: price, kind: electricity, rows: [load_weighted_mean], unit: EUR/MWh, decimals: 1}
+  - {id: elec_price_p95, group: Electricity, label: Electricity price (95th percentile),
+     source: price, kind: electricity, rows: [p95], unit: EUR/MWh, decimals: 1}
+  - {id: elec_hours_above_200, group: Electricity, label: Hours above 200 EUR/MWh,
+     source: price, kind: electricity, rows: [hours_above_200], unit: h/year, decimals: 0}
+
+  # -- costs -------------------------------------------------------------------------
+  - {id: cost_total, group: Costs, label: Annual cost in the region,
+     source: cost, kind: total, scale: 1.0e-6, unit: MEUR/year, decimals: 0, better: lower}
+  - {id: cost_capital, group: Costs, label: "  of which investment (annuities)",
+     source: cost, kind: capital, scale: 1.0e-6, unit: MEUR/year, decimals: 0}
+  - {id: cost_marginal, group: Costs, label: "  of which operation",
+     source: cost, kind: marginal, scale: 1.0e-6, unit: MEUR/year, decimals: 0}
+
+  # -- capacities ----------------------------------------------------------------------
+  - {id: cap_solar, group: Capacities, label: Solar PV,
+     source: capacity, kind: power, rows: ["solar", "solar PV*"], match: glob}
+  - {id: cap_onwind, group: Capacities, label: Onshore wind,
+     source: capacity, kind: power, rows: ["onshore wind"]}
+  - {id: cap_offwind, group: Capacities, label: Offshore wind,
+     source: capacity, kind: power, rows: ["offshore wind"]}
+  - {id: cap_nuclear, group: Capacities, label: Nuclear,
+     source: capacity, kind: power, rows: [nuclear]}
+  - {id: cap_gas_power, group: Capacities, label: Gas power plants,
+     source: capacity, kind: power, rows: [CCGT, CCGT CC, OCGT]}
+  - {id: cap_battery, group: Capacities, label: Battery (discharge power),
+     source: capacity, kind: power, rows: ["*battery discharger"], match: glob}
+  - {id: cap_electrolysis, group: Capacities, label: Electrolysis,
+     source: capacity, kind: power, rows: [electrolysis]}
+  - {id: cap_power_to_heat, group: Capacities, label: Power-to-heat,
+     source: capacity, kind: power, rows: [power-to-heat]}
+  - {id: cap_ccs, group: Capacities, label: Carbon capture plants (fuel input),
+     source: capacity, kind: ccs}
+  - {id: storage_battery, group: Capacities, label: Stationary battery storage,
+     source: capacity, kind: storage, rows: ["*battery*"], exclude: ["EV battery"],
+     match: glob}
+  - {id: storage_thermal, group: Capacities, label: Thermal energy storage,
+     source: capacity, kind: storage, rows: ["Thermal Energy Storage"]}
+  - {id: storage_h2, group: Capacities, label: Hydrogen storage,
+     source: capacity, kind: storage, rows: ["H2 Store"]}

@@ -1,8 +1,10 @@
-"""Multi-scenario overview chart builders for the landing page.
+"""Comparison charts: one figure per question, every scenario in it.
 
-Each builder reads **all** configured scenarios via :func:`scenario_contexts`,
-skipping any whose ``results_dir`` is missing so a comparison page still
-renders when only some scenarios have been solved.
+These are the builders of the comparison report's "Comparison charts" page.
+``ctx`` is a :class:`~pypsa2html.compare.CompareContext`: ``ctx.scenarios``
+maps a scenario label to its summary (reference first), so a builder reads
+``data.table(node, "cost.total")`` and never a network.  A scenario whose
+summary lacks the table is left out of that chart with a warning.
 """
 
 from __future__ import annotations
@@ -13,8 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from .. import indicators
-from ..context import BuildContext, build_context
-from ..extract.tables import capacity_table, cost_table
+from ..metrics import as_year_frame
 from .base import (
     CHART_HEIGHT,
     FONT_SIZE,
@@ -34,63 +35,24 @@ logger = logging.getLogger(__name__)
 _CAPACITY_SCALE = 1e-3
 
 
-def scenario_contexts(ctx) -> dict[str, BuildContext]:
-    """Build/cache a :class:`BuildContext` per *browsable* scenario.
-
-    Returns a mapping of scenario *label* -> context.  Scenarios whose
-    ``results_dir`` is absent are skipped with a warning, and so are parameter
-    sweep points (``sensitivity:`` in the config): six runs differing in one
-    number would add six near-identical bars to every comparison and bury the
-    scenarios that genuinely differ.  They are read by ``charts.sensitivity``
-    instead.
-
-    When the site build has installed a shared context pool on ``ctx``
-    (see :func:`pypsa2html.build.build_site`), contexts are reused across
-    scenarios so overview pages do not re-extract every network three times.
-    """
-    key = ("scenario_contexts",)
-    cached = ctx._files.get(key)
-    if cached is not None:
-        return cached
-
-    config = getattr(ctx, "config", None)
-    scenario_list = (
-        getattr(config, "report_scenarios", None) if config is not None else None
-    )
-    if scenario_list is None and config is not None:
-        scenario_list = getattr(config, "scenarios", None)
-    if not scenario_list:
-        logger.warning("no scenarios configured; scenario comparison skipped")
-        ctx._files[key] = {}
+def compared(ctx) -> dict:
+    """``{label: ScenarioData}`` of the comparison, reference first."""
+    scenarios = getattr(ctx, "scenarios", None)
+    if not isinstance(scenarios, dict) or not scenarios:
+        logger.warning("no compared scenario; comparison chart skipped")
         return {}
+    return scenarios
 
-    pool = ctx._files.get(("_context_pool",))
 
-    contexts: dict[str, BuildContext] = {}
-    for sc in scenario_list:
-        results_dir = config.results_dir(sc.name)
-        if not results_dir.exists():
-            logger.warning(
-                "scenario %s: results_dir missing, skipping: %s",
-                sc.label,
-                results_dir,
-            )
-            continue
-        try:
-            if isinstance(pool, dict):
-                if sc.name not in pool:
-                    other = build_context(config, sc.name)
-                    other._files[("_context_pool",)] = pool
-                    pool[sc.name] = other
-                contexts[sc.label] = pool[sc.name]
-            else:
-                contexts[sc.label] = build_context(config, sc.name)
-        except FileNotFoundError as exc:
-            logger.warning("scenario %s: %s", sc.label, exc)
-            continue
+def _str_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Year columns as strings: the chart-data labeller looks codes up by name."""
+    out = frame.copy()
+    out.columns = [str(c) for c in out.columns]
+    return out
 
-    ctx._files[key] = contexts
-    return contexts
+
+def _difference_label(label: str, reference: str) -> str:
+    return f"{label} − {reference}"
 
 
 def _scenario_palette(labels: list[str]) -> dict[str, str]:
@@ -181,39 +143,43 @@ def _scenario_line_chart(
     return fig
 
 
+
+
 def _table_comparison(
     ctx,
     node: str,
     section,
     *,
-    table_fn,
+    key: str,
     signed: bool = True,
     scale: float = 1.0,
 ) -> go.Figure | None:
-    """Compare scenarios via total grouped bars and per-scenario stacked tech views."""
-    scenarios = scenario_contexts(ctx)
+    """Totals side by side, each scenario's composition, and its difference.
+
+    Views of the dropdown: *Total* (grouped bars), one stacked bar per
+    scenario, then -- for every scenario but the reference -- *X − reference*
+    (the technology-by-technology difference, signed) and *Difference to
+    reference* (the totals' difference, grouped).  The difference is what the
+    batch logs read: "nuc4gw − central isolates Tihange 1".
+    """
+    scenarios = compared(ctx)
     if not scenarios:
-        logger.warning("section %s: no scenario contexts for node %s", section.id, node)
         return None
+    reference = getattr(ctx, "reference", None)
 
     totals: dict[str, pd.Series] = {}
     stacks: dict[str, pd.DataFrame] = {}
-    for label, sctx in scenarios.items():
-        table = table_fn(sctx, node)
+    for label, data in scenarios.items():
+        table = data.table(node, key)
         if table is None or table.empty:
             logger.warning(
-                "section %s: no data for scenario %s, node %s",
-                section.id,
-                label,
-                node,
+                "section %s: no %s for scenario %s, node %s", section.id, key, label, node
             )
             continue
-        years = [y for y in sctx.year_columns if y in table.columns]
-        if not years:
-            years = [str(c) for c in table.columns if str(c).isdigit()]
+        years = [y for y in data.year_columns if y in table.columns]
         if not years:
             continue
-        sub = table.reindex(columns=years, fill_value=0.0)
+        sub = table.reindex(columns=years, fill_value=0.0).fillna(0.0)
         totals[label] = sub.sum(axis=0)
         stacks[label] = sub
 
@@ -231,46 +197,51 @@ def _table_comparison(
     colors = tech_color_map()
     for label, table in stacks.items():
         figures.append(
-            (
-                label,
-                stacked_bar(
-                    table,
-                    colors,
-                    unit=section.unit,
-                    title="",
-                    signed=signed,
-                    scale=scale,
-                ),
+            (label, stacked_bar(table, colors, unit=section.unit, title="",
+                                signed=signed, scale=scale))
+        )
+    if reference in stacks and len(stacks) > 1:
+        base = stacks[reference]
+        deltas = {}
+        for label, table in stacks.items():
+            if label == reference:
+                continue
+            common = [y for y in table.columns if y in base.columns]
+            rows = table.index.union(base.index, sort=False)
+            diff = (
+                table[common].reindex(rows).fillna(0.0)
+                - base[common].reindex(rows).fillna(0.0)
             )
+            figures.append(
+                (_difference_label(label, reference),
+                 stacked_bar(diff, colors, unit=section.unit, title="", signed=True,
+                             scale=scale))
+            )
+            deltas[label] = total_df[label] - total_df[reference]
+        figures.append(
+            (f"Difference to {reference}",
+             _grouped_bar(pd.DataFrame(deltas), unit=section.unit, scale=scale))
         )
 
     return combine_charts(figures, menu_title="View")
 
 
 def cumulative_emissions(ctx, node: str, section) -> go.Figure | None:
-    scenarios = scenario_contexts(ctx)
+    scenarios = compared(ctx)
     if not scenarios:
-        logger.warning("section %s: no scenario contexts for node %s", section.id, node)
         return None
 
     figures: list[tuple[str, go.Figure | None]] = []
-    for label, sctx in scenarios.items():
-        data = indicators.for_node(sctx, node)
-        if data is None:
+    for label, data in scenarios.items():
+        frame = as_year_frame(data.table(node, "indicator.ghg_sector_cum"))
+        if frame is None or frame.empty or not len(frame.columns):
             logger.warning(
-                "section %s: no indicators for scenario %s, node %s",
-                section.id,
-                label,
-                node,
+                "section %s: no cumulative emissions for scenario %s, node %s",
+                section.id, label, node,
             )
             continue
-        frame = data.ghg_sector_cum
-        if frame is None or frame.empty or not len(frame.columns):
-            continue
         add_chart_data(ctx, node, f"{section.title} - {label}", section.unit, frame)
-        figures.append(
-            (label, ghg_area_chart(sctx, frame, unit=section.unit)),
-        )
+        figures.append((label, ghg_area_chart(ctx, frame, unit=section.unit)))
 
     if not figures:
         logger.warning("section %s: nothing to plot for node %s", section.id, node)
@@ -279,25 +250,19 @@ def cumulative_emissions(ctx, node: str, section) -> go.Figure | None:
 
 
 def energy_comparison(ctx, node: str, section) -> go.Figure | None:
-    scenarios = scenario_contexts(ctx)
+    scenarios = compared(ctx)
     if not scenarios:
-        logger.warning("section %s: no scenario contexts for node %s", section.id, node)
         return None
 
     totals: dict[str, pd.Series] = {}
     breakdowns: dict[str, pd.DataFrame] = {}
-    for label, sctx in scenarios.items():
-        data = indicators.for_node(sctx, node)
-        if data is None:
-            logger.warning(
-                "section %s: no indicators for scenario %s, node %s",
-                section.id,
-                label,
-                node,
-            )
-            continue
-        fec = data.fec_carrier
+    for label, data in scenarios.items():
+        fec = as_year_frame(data.table(node, "indicator.fec_carrier"))
         if fec is None or fec.empty:
+            logger.warning(
+                "section %s: no final energy for scenario %s, node %s",
+                section.id, label, node,
+            )
             continue
         totals[label] = fec.sum(axis=1)
         breakdowns[label] = fec
@@ -307,80 +272,54 @@ def energy_comparison(ctx, node: str, section) -> go.Figure | None:
         return None
 
     total_df = pd.DataFrame(totals)
-    add_chart_data(ctx, node, section.title, section.unit, total_df.T)
+    add_chart_data(ctx, node, section.title, section.unit, _str_columns(total_df.T))
 
     figures: list[tuple[str, go.Figure | None]] = [
         ("Total", _scenario_line_chart(total_df, unit=section.unit)),
     ]
     for label, fec in breakdowns.items():
-        sctx = scenarios[label]
-        figures.append((label, area_chart(sctx, fec, unit=section.unit)))
+        figures.append((label, area_chart(ctx, fec, unit=section.unit)))
 
     return combine_charts(figures, menu_title="Scenario")
 
 
 def costs(ctx, node: str, section) -> go.Figure | None:
-    return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: cost_table(sctx, n, "total"),
-        signed=True,
-    )
+    return _table_comparison(ctx, node, section, key="cost.total", signed=True)
 
 
 def investment_costs(ctx, node: str, section) -> go.Figure | None:
-    return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: cost_table(sctx, n, "capital"),
-        signed=True,
-    )
+    return _table_comparison(ctx, node, section, key="cost.capital", signed=True)
 
 
 def operational_costs(ctx, node: str, section) -> go.Figure | None:
-    return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: cost_table(sctx, n, "marginal"),
-        signed=True,
-    )
+    return _table_comparison(ctx, node, section, key="cost.marginal", signed=True)
 
 
 def capacities(ctx, node: str, section) -> go.Figure | None:
     return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: capacity_table(sctx, n, "power"),
-        signed=False,
-        scale=_CAPACITY_SCALE,
+        ctx, node, section, key="capacity.power", signed=False, scale=_CAPACITY_SCALE
     )
 
 
 def storage_capacities(ctx, node: str, section) -> go.Figure | None:
     return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: capacity_table(sctx, n, "storage"),
-        signed=False,
-        scale=_CAPACITY_SCALE,
+        ctx, node, section, key="capacity.storage", signed=False, scale=_CAPACITY_SCALE
     )
 
 
 def cc_capacities(ctx, node: str, section) -> go.Figure | None:
     """Capture plant comparison — fuel-input GW, not MtCO₂/year."""
     return _table_comparison(
-        ctx,
-        node,
-        section,
-        table_fn=lambda sctx, n: capacity_table(sctx, n, "ccs"),
-        signed=False,
-        scale=_CAPACITY_SCALE,
+        ctx, node, section, key="capacity.ccs", signed=False, scale=_CAPACITY_SCALE
     )
+
+
+def _nuclear_modes(scenarios: dict) -> set[str]:
+    modes = set()
+    for data in scenarios.values():
+        settings = (getattr(data, "meta", None) or {}).get("settings") or {}
+        modes.add(str(settings.get("features.nuclear_primary") or "uranium"))
+    return modes
 
 
 def energy_independence(ctx, node: str, section) -> go.Figure | None:
@@ -390,36 +329,41 @@ def energy_independence(ctx, node: str, section) -> go.Figure | None:
     geographic self-sufficiency with the renewable share of gas and oil and
     hid net exporters.  Groups and the study-wide aggregate are included —
     internal trade cancels, so ``BE`` is Belgium, not the sum of regional
-    ratios.
+    ratios.  The primary-energy panel names the nuclear convention each
+    summary was built with, and says so when the scenarios disagree.
     """
-    scenarios = scenario_contexts(ctx)
+    scenarios = compared(ctx)
     if not scenarios:
-        logger.warning("section %s: no scenario contexts for node %s", section.id, node)
         return None
 
     figures = []
     for kind, code in indicators.SELF_SUFFICIENCY_KINDS:
         label = str(ctx.taxonomy.label(code))
         series: dict[str, pd.Series] = {}
-        for scen_label, sctx in scenarios.items():
-            data = indicators.for_node(sctx, node)
-            if data is None:
+        for scen_label, data in scenarios.items():
+            table = data.table(node, "self_sufficiency.ratio")
+            if table is None or kind not in table.index:
                 logger.warning(
-                    "section %s: no indicators for scenario %s, node %s",
-                    section.id,
-                    scen_label,
-                    node,
+                    "section %s: no self-sufficiency for scenario %s, node %s",
+                    section.id, scen_label, node,
                 )
                 continue
-            series[scen_label] = data.self_sufficiency.ratio[kind]
+            row = table.loc[kind].copy()
+            row.index = [int(y) if str(y).isdigit() else y for y in row.index]
+            series[scen_label] = row
         if not series:
             continue
         frame = pd.DataFrame(series)
         panel = label
         if kind == "primary":
-            mode = indicators.nuclear_primary_mode(ctx)
-            panel = f"{label} ({indicators.NUCLEAR_PRIMARY_LABELS[mode]})"
-        add_chart_data(ctx, node, f"{section.title} - {panel}", section.unit, frame.T)
+            modes = _nuclear_modes(scenarios)
+            if len(modes) == 1:
+                mode = modes.pop()
+                panel = f"{label} ({indicators.NUCLEAR_PRIMARY_LABELS.get(mode, mode)})"
+            else:
+                panel = f"{label} (nuclear conventions differ: {', '.join(sorted(modes))})"
+        add_chart_data(ctx, node, f"{section.title} - {panel}", section.unit,
+                       _str_columns(frame.T))
         fig = _scenario_line_chart(frame, unit=section.unit)
         if fig is not None:
             fig.add_hline(

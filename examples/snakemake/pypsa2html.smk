@@ -5,7 +5,8 @@
 #     include: "rules/pypsa2html.smk"
 #
 # then add `rules.generate_html_report.output` to your `all` rule's input (or
-# just run `snakemake generate_html_report`).
+# just run `snakemake generate_html_report`), and build the comparison of the
+# runs with `snakemake results/compare/index.html`.
 #
 # If pypsa2html is not installed the rule is not defined at all, so the rest of
 # the workflow is unaffected -- this is the "if the library is available it is
@@ -30,12 +31,15 @@ if HAVE_PYPSA2HTML:
     PYPSA2HTML_CONFIG = config.get("pypsa2html", {}).get("config", "config/pypsa2html.yaml")
 
     rule generate_html_report:
-        """Build the interactive HTML report from the solved networks.
+        """One run's report: its pages, and the summary the comparison reads.
 
         Unlike the legacy rules this replaces, every file read is declared
         here. The originals declared nine inputs of which four were never
         read, and read a further nine by hardcoded path that Snakemake could
         therefore neither track nor clean.
+
+        The report describes this run only -- no other scenario is loaded,
+        whatever else the config lists (D24).
         """
         params:
             config_file=PYPSA2HTML_CONFIG,
@@ -50,6 +54,7 @@ if HAVE_PYPSA2HTML:
             config_file=PYPSA2HTML_CONFIG,
         output:
             index=RESULTS + "html/index.html",
+            summary=RESULTS + "html/summary.json",
         log:
             RESULTS + "logs/pypsa2html.log",
         benchmark:
@@ -71,39 +76,50 @@ if HAVE_PYPSA2HTML:
                 format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
             )
 
+            html_dir = Path(output.index).parent
             cfg = load_config(
                 params.config_file,
                 # Write next to the rest of this run's results.
-                overrides={"output": {"dir": str(Path(output.index).parent)}},
+                overrides={"output": {"dir": str(html_dir)}},
             )
+            # Report the tree this job was given, whatever the config lists
+            # under the same name, and land on it.
+            cfg = cfg.with_scenario(params.scenario, html_dir.parent)
             report = build_site(cfg, scenarios=[params.scenario])
             logging.info(report.summary())
 
 
-    rule generate_html_report_all_scenarios:
-        """Cross-scenario report, including the comparison overview page.
+    rule generate_html_comparison:
+        """The comparison report, from every compared run's summary file.
 
-        Run this after every scenario has been solved. It needs each
-        scenario's results directory to exist, which Snakemake cannot express
-        here because the scenarios live in sibling run directories -- so this
-        rule is deliberately not wired into `all`.
+        The summaries are small, so they are declared as inputs: the
+        comparison is rebuilt when a run's report is, and never reads a
+        network.  List the runs to compare under `pypsa2html: compare:` in
+        the workflow config (default: `run.name`).
         """
         params:
             config_file=PYPSA2HTML_CONFIG,
+        input:
+            summaries=expand(
+                "results/{run}/html/summary.json",
+                run=config.get("pypsa2html", {}).get("compare") or config["run"]["name"],
+            ),
+            config_file=PYPSA2HTML_CONFIG,
         output:
-            index="results/html/index.html",
+            index="results/compare/index.html",
         log:
-            "logs/pypsa2html_all.log",
+            "logs/pypsa2html_compare.log",
         threads: 1
         run:
             import logging
             from pathlib import Path
 
-            from pypsa2html import build_site, load_config
+            from pypsa2html import compare_site, load_config
 
             logging.basicConfig(filename=log[0], level=logging.INFO)
-            cfg = load_config(
-                params.config_file,
-                overrides={"output": {"dir": str(Path(output.index).parent)}},
+            report = compare_site(
+                load_config(params.config_file),
+                [Path(p).parent for p in input.summaries],
+                out_dir=Path(output.index).parent,
             )
-            logging.info(build_site(cfg).summary())
+            logging.info(report.summary())

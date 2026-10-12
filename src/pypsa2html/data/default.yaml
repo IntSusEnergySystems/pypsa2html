@@ -1,7 +1,7 @@
 # pypsa2html -- packaged defaults.
 #
 # A project config is deep-merged over this file, so it only needs to state
-# what differs.  Every key here is documented in docs/configuration.md.
+# what differs.  Every key is documented here, in place.
 
 project:
   name: PyPSA results
@@ -53,23 +53,59 @@ nodes:
   #     members: [BEVLG, BEWAL, BEBRU]
 
 landing:
-  scenario: null        # null = first declared scenario
+  scenario: null        # null = first declared scenario (root index.html only)
   node: null            # null = nodes.focus
-  page: overview
+  page: key_figures     # each scenario's index.html opens on this page
 
+# A SCENARIO REPORT describes one run and nothing else: no scenario dropdown,
+# no cross-scenario chart. It writes summary.csv / summary.json beside its
+# pages, and the COMPARISON REPORT (`compare:` below, `pypsa2html compare`)
+# is built from those summaries. See docs/DESIGN_DECISIONS.md D24.
 output:
   # May contain {scenario}. With it, each scenario's pages land beside that
-  # scenario's own results (csvs/, graphs/, networks/) and the cross-scenario
-  # links become relative paths. Without it, all scenarios share one folder.
+  # scenario's own results (csvs/, graphs/, networks/). Without it, all
+  # scenarios share one folder (file names carry the scenario).
   dir: "{scenario}/html"
-  # `sensitivity` carries the parameter sweeps and disappears when none are
-  # declared. A project that pins this list before adding sweeps gets it
-  # appended automatically rather than silently losing the page.
-  pages: [overview, sensitivity, emissions, sankeys, fec, demands, heat, costs, capacities, dispatch, maps]
+  pages: [key_figures, emissions, sankeys, fec, demands, heat, costs, capacities, dispatch, maps]
   shared_maps: true     # one maps page for the whole site, not one per node
   plotly: cdn           # 'cdn' (small pages, needs network) or 'inline' (offline)
   chart_data: true      # also write ChartData_<node>.xlsx
   write_index: true     # generate index.html redirecting to the landing page
+  # Link from every scenario page to the comparison report: relative to the
+  # scenario's output directory (e.g. ../../../compare/index.html) or a URL.
+  compare_url: null
+
+# The per-scenario summary files the comparison reads.
+summary:
+  enabled: true
+  flows: true           # include the energy and carbon graph edges (flow.*)
+  tables: []            # extra tables (family.kind) to write for every node
+
+# The comparison report.  `pypsa2html compare` builds it from any set of
+# result folders; `pypsa2html build` builds it too when it builds two or more
+# scenarios (enabled: auto).
+compare:
+  enabled: auto         # auto | true | false
+  name: compare         # file-name tag: <node>_<page>_compare.html
+  title: Scenario comparison
+  dir: null             # null = compare/ under the scenarios' common output root
+  reference: null       # differences are taken against this scenario; null = first
+  scenarios: []         # names to compare, in order; [] = every browsable scenario
+  # `sensitivity` carries the parameter sweeps and disappears when none are
+  # declared; `scenarios` lists where every number comes from.
+  pages: [key_figures, overview, sensitivity, scenarios]
+  years: null           # years offered in the key-figures table; null = all
+  landing: {}           # {node, page} of the comparison's index.html
+  report_url: null      # link to each scenario's report, e.g. https://host/{scenario}/
+  on_stale: warn        # missing / stale summary: warn (use what is usable) | skip | fail
+  vintage_warn_days: 3  # flag scenarios solved further apart than this
+
+# Key figures (scenario report and comparison).  The packaged set is in
+# data/kpis.yaml; entries here are merged over it by `id` -- override a field,
+# add a project indicator, or drop one with `enabled: false`.
+# `kpi_defaults: false` starts from an empty list.
+kpi_defaults: true
+kpis: []
 
 # Per-section on/off switches, keyed by the section ids in data/pages.yaml.
 # Anything not listed keeps the manifest default.
@@ -126,13 +162,13 @@ scenarios: []
 #       results_dir: results/run_nuc_4500
 #       sensitivity: {sweep: nuclear_capex, value: 4500}
 #
-# A scenario with that marker is a sweep *point*: it gets no pages, it is
-# absent from the scenario dropdown and from the cross-scenario overview, and
-# it feeds the section below instead.
+# A scenario with that marker is a sweep *point*: it gets no pages (`build`
+# writes only its summary file), it is never set beside the scenarios of the
+# comparison report, and it feeds the section below instead.
 #
 # Each entry becomes one section (id `sensitivity_<id>`) on the `sensitivity`
-# page, switchable under `plots:` and annotatable under `texts:` like any
-# other.
+# page of the comparison report, switchable under `plots:` and annotatable
+# under `texts:` like any other.
 #
 #   sensitivities:
 #     - id: nuclear_capex            # letters/digits/underscores; the anchor
@@ -141,6 +177,7 @@ scenarios: []
 #       nodes: [BEWAL]               # region(s) read; default: nodes.focus
 #       description: "<p>Shown above the chart.</p>"
 #       metrics:
+#         # Any metric source of pypsa2html/metrics.py (see kpis below), e.g.
 #         # table: capacity (kind: power|storage|ccs)
 #         #        cost     (kind: total|capital|marginal|clustered)
 #         #        indicator(field: an Indicators DataFrame, e.g. ghg_sector)

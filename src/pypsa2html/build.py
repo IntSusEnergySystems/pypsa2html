@@ -1,4 +1,10 @@
-"""The build loop: manifest x nodes x scenarios -> a navigable site.
+"""The build loop: manifest x nodes -> one scenario report; then the comparison.
+
+A scenario report describes one run and links only within itself.  Next to
+its pages it writes ``summary.csv`` / ``summary.json``
+(:mod:`pypsa2html.summary`), and the comparison report
+(:mod:`pypsa2html.compare`) is built from those files -- never by reopening
+the other scenarios' networks while one scenario is being reported (D24).
 
 This replaces ``create_combined_chart_country`` (200 lines in which the
 fragment names, TOC entries, section ids and plot-toggle keys were hardcoded in
@@ -42,12 +48,24 @@ class BuildReport:
     skipped: list[tuple[str, str, str]] = field(default_factory=list)
     failed: list[tuple[str, str, str]] = field(default_factory=list)
     seconds: float = 0.0
+    #: ``summary.json`` files written.
+    summaries: list[Path] = field(default_factory=list)
+    #: ``index.html`` of the comparison report, when one was built.
+    index: Path | None = None
 
     def summary(self) -> str:
+        extra = f", {len(self.summaries)} summary file(s)" if self.summaries else ""
         return (
             f"{len(self.written)} page(s) written, {len(self.skipped)} section(s) "
-            f"skipped, {len(self.failed)} section(s) failed, in {self.seconds:.1f}s"
+            f"skipped, {len(self.failed)} section(s) failed{extra}, in {self.seconds:.1f}s"
         )
+
+    def merge(self, other: BuildReport) -> None:
+        self.written.extend(other.written)
+        self.skipped.extend(other.skipped)
+        self.failed.extend(other.failed)
+        self.summaries.extend(other.summaries)
+        self.seconds += other.seconds
 
 
 def resolve_builder(dotted: str):
@@ -115,66 +133,43 @@ def _build_section(ctx: BuildContext, node, section: Section) -> RenderedSection
     )
 
 
-def _scenario_prefixes(config: Config, current: str) -> dict[str, str]:
-    """Relative href prefix from ``current``'s output dir to each scenario's.
-
-    Empty string when they share a directory; ``../<other>/html/`` when
-    ``output.dir`` is per-scenario. Keeping the whole site relative means it
-    works from a file:// path, a web server, or an S3 prefix without change.
-    """
-    here = config.output_dir(current)
-    prefixes = {}
-    for scenario in config.report_scenarios:
-        there = config.output_dir(scenario.name)
-        if there == here:
-            prefixes[scenario.name] = ""
-        else:
-            prefixes[scenario.name] = os.path.relpath(there, here).replace(os.sep, "/") + "/"
-    return prefixes
+def _page_render_kwargs(ctx, page) -> dict:
+    """Per-page extras: the scenario description on the landing page."""
+    description = getattr(ctx.scenario, "description", None)
+    if description and page.id == "key_figures":
+        return {"scenario_note": description}
+    return {}
 
 
-def build_scenario(
-    config: Config,
-    scenario_name: str,
+def render_site(
+    ctx,
+    manifest: Manifest,
+    out_dir: Path,
     *,
-    manifest: Manifest | None = None,
-    ctx: BuildContext | None = None,
-    report: BuildReport | None = None,
-    context_pool: dict[str, BuildContext] | None = None,
+    file_tag: str,
+    report: BuildReport,
+    report_name: str,
     only_pages: list[str] | None = None,
-) -> BuildReport:
-    """Build every page for every node of one scenario.
+    render_kwargs=None,
+) -> None:
+    """Build every page of ``manifest`` for every node of ``ctx`` into ``out_dir``.
 
-    ``only_pages`` skips writing other pages but the left nav still lists the
-    full ``manifest`` (normally ``output.pages``).  A rebuild of just the
-    Sankeys therefore keeps links to overview, costs, maps, …
+    Shared by the scenario report and the comparison report: ``ctx`` is a
+    :class:`~pypsa2html.context.BuildContext` or a
+    :class:`~pypsa2html.compare.CompareContext`, ``file_tag`` the last part
+    of every file name.  ``only_pages`` skips writing other pages, but the
+    left nav still lists the full ``manifest``.
     """
-    started = time.perf_counter()
-    report = report or BuildReport()
-    if ctx is None and context_pool is not None and scenario_name in context_pool:
-        ctx = context_pool[scenario_name]
-    ctx = ctx or build_context(config, scenario_name)
-    if context_pool is not None:
-        context_pool.setdefault(scenario_name, ctx)
-        # Shared across scenario_contexts() so overview reuses extractions.
-        ctx._files[("_context_pool",)] = context_pool
-    manifest = manifest or load_manifest(
-        enable=config.plots,
-        include_pages=config.output.pages,
-        sensitivities=config.sensitivities,
-    )
+    config = ctx.config
     if only_pages:
         unknown = [p for p in only_pages if p not in manifest.ids]
         if unknown:
             raise ValueError(
                 f"--only refers to unknown page(s) {unknown}. Valid: {manifest.ids}"
             )
-    out_dir = config.output_dir(scenario_name)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    scenario_prefixes = _scenario_prefixes(config, scenario_name)
-
-    shared_done: set[str] = set()
     write_ids = set(only_pages) if only_pages else None
+    shared_done: set[str] = set()
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     for page in manifest:
         if write_ids is not None and page.id not in write_ids:
@@ -194,16 +189,17 @@ def build_scenario(
                     continue
                 rendered = _build_section(ctx, node, section)
                 if rendered is None:
-                    report.skipped.append((scenario_name, node.code, section.id))
+                    report.skipped.append((report_name, node.code, section.id))
                     continue
                 if "p2h-missing" in rendered.body:
-                    report.failed.append((scenario_name, node.code, section.id))
+                    report.failed.append((report_name, node.code, section.id))
                 sections.append(rendered)
 
             if not sections:
                 logger.info("page %s/%s has no content, not written", node.code, page.id)
                 continue
 
+            extra = dict(render_kwargs(ctx, page) if render_kwargs else {})
             html = render_page(
                 page=page,
                 manifest=manifest,
@@ -211,12 +207,12 @@ def build_scenario(
                 node=node,
                 nodes=ctx.nodes,
                 scenario=ctx.scenario,
-                scenarios=config.report_scenarios,
                 project=config.project,
                 plotly=config.output.plotly,
-                scenario_prefixes=scenario_prefixes,
+                file_tag=file_tag,
+                **extra,
             )
-            path = out_dir / page.filename(node.code, scenario_name)
+            path = out_dir / page.filename(node.code, file_tag)
             path.write_text(html, encoding="utf-8")
             report.written.append(path)
             logger.info("wrote %s (%.0f kB)", path.name, path.stat().st_size / 1024)
@@ -225,10 +221,111 @@ def build_scenario(
                 shared_done.add(page.id)
                 break
 
+
+def _scenario_render_kwargs(config: Config):
+    """Render extras of every scenario page: subtitle, compare link, note."""
+    links = []
+    if config.output.compare_url:
+        links.append({"label": "Compare scenarios \u2197", "href": config.output.compare_url})
+
+    def kwargs(ctx, page) -> dict:
+        out = {"subtitle": str(ctx.scenario.label), "links": links}
+        out.update(_page_render_kwargs(ctx, page))
+        return out
+
+    return kwargs
+
+
+def build_scenario(
+    config: Config,
+    scenario_name: str,
+    *,
+    manifest: Manifest | None = None,
+    ctx: BuildContext | None = None,
+    report: BuildReport | None = None,
+    only_pages: list[str] | None = None,
+    summary: bool | None = None,
+) -> BuildReport:
+    """Build every page for every node of one scenario, then its summary.
+
+    ``only_pages`` skips writing other pages but the left nav still lists the
+    full ``manifest`` (normally ``output.pages``).  A rebuild of just the
+    Sankeys therefore keeps links to key figures, costs, maps, …
+
+    ``summary`` writes ``summary.csv``/``summary.json``; ``None`` = when
+    ``summary.enabled`` and the whole report is built (a partial rebuild does
+    not refresh the numbers the comparison reads).
+    """
+    started = time.perf_counter()
+    report = report or BuildReport()
+    ctx = ctx or build_context(config, scenario_name)
+    manifest = manifest or load_manifest(
+        enable=config.plots,
+        include_pages=config.output.pages,
+        sensitivities=config.sensitivities,
+    )
+    out_dir = config.output_dir(scenario_name)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written_before = len(report.written)
+
+    render_site(
+        ctx,
+        manifest,
+        out_dir,
+        file_tag=scenario_name,
+        report=report,
+        report_name=scenario_name,
+        only_pages=only_pages,
+        render_kwargs=_scenario_render_kwargs(config),
+    )
+
     report_graph_imbalances(config, ctx, out_dir, scenario_name)
+
+    write = summary if summary is not None else (config.summary.enabled and not only_pages)
+    if write:
+        path = write_scenario_summary(config, ctx)
+        if path is not None:
+            report.summaries.append(path)
+
+    if config.output.write_index and len(report.written) > written_before:
+        landing = _landing_filename(config, manifest, scenario=scenario_name)
+        index = write_index(out_dir, landing)
+        report.written.append(index)
+        logger.info("landing page: %s -> %s", index, landing)
 
     report.seconds += time.perf_counter() - started
     return report
+
+
+def write_scenario_summary(config: Config, ctx: BuildContext) -> Path | None:
+    """Write the summary of ``ctx``; a failure is logged, never raised."""
+    from .summary import write_summary
+
+    try:
+        return write_summary(ctx, config.summary_dir(ctx.scenario.name), config.kpis)
+    except Exception:  # noqa: BLE001 - the pages are written; keep them
+        logger.exception("summary of %s could not be written", ctx.scenario.name)
+        return None
+
+
+def summarize_scenario(config: Config, scenario_name: str) -> Path | None:
+    """Write only the summary of ``scenario_name`` (no pages).
+
+    What a sweep point gets, and what ``pypsa2html summarize`` runs, e.g. on a
+    cluster whose results are compared elsewhere.
+    """
+    from .networks import clear_path_cache
+
+    logger.info("=== summary of %s ===", scenario_name)
+    try:
+        ctx = build_context(config, scenario_name)
+    except FileNotFoundError as exc:
+        logger.warning("no summary for %s: %s", scenario_name, exc)
+        return None
+    try:
+        return write_scenario_summary(config, ctx)
+    finally:
+        clear_path_cache()
 
 
 def report_graph_imbalances(
@@ -271,8 +368,15 @@ def build_site(
     scenarios: list[str] | None = None,
     manifest: Manifest | None = None,
     only_pages: list[str] | None = None,
+    compare: bool | None = None,
 ) -> BuildReport:
-    """Build the whole site: every scenario, plus ``index.html``."""
+    """Build one report per scenario, then -- for several -- the comparison.
+
+    ``scenarios`` defaults to every browsable scenario; sweep points then get
+    a summary (no pages) for the comparison's sensitivity page.  ``compare``
+    overrides ``compare.enabled``: with ``auto``, the comparison is built when
+    two or more scenarios were built, or sweeps are declared.
+    """
     from .charts.maps import clear_map_png_cache
     from .networks import clear_path_cache, set_path_cache_max
 
@@ -286,39 +390,55 @@ def build_site(
         include_pages=config.output.pages,
         sensitivities=config.sensitivities,
     )
-    # Sweep points have no pages of their own: they are six readings of one
-    # curve, drawn by the sensitivity section from the same config.
-    names = scenarios or config.report_scenario_names
-    # One BuildContext per scenario for the whole site: overview pages and
-    # later scenario builds share extractions and loaded networks.
-    context_pool: dict[str, BuildContext] = {}
+    names = list(scenarios or config.report_scenario_names)
+    for name in names:
+        config.scenario(name)  # unknown names fail before anything is built
+    sweep_points = (
+        [] if scenarios else [s.name for s in config.scenarios if s.is_sweep_point]
+    )
 
     try:
         for name in names:
             logger.info("=== scenario %s ===", name)
-            build_scenario(
-                config,
-                name,
-                manifest=manifest,
-                report=report,
-                context_pool=context_pool,
-                only_pages=only_pages,
-            )
+            if config.scenario(name).is_sweep_point:
+                path = summarize_scenario(config, name)
+                if path is not None:
+                    report.summaries.append(path)
+                continue
+            build_scenario(config, name, manifest=manifest, report=report,
+                           only_pages=only_pages)
+            # A scenario's networks are not needed by the next one: the
+            # comparison reads summaries.  Releasing them here is what keeps a
+            # many-scenario build at one scenario's memory.
+            clear_path_cache()
+        for name in sweep_points:
+            path = summarize_scenario(config, name)
+            if path is not None:
+                report.summaries.append(path)
 
-        if config.output.write_index and report.written:
-            landing = _landing_filename(config, manifest)
-            landing_scenario = config.landing_scenario.name
-            landing_dir = config.output_dir(landing_scenario)
+        built = [n for n in names if not config.scenario(n).is_sweep_point]
+        wanted = config.compare.enabled if compare is None else compare
+        if wanted == "auto":
+            wanted = len(built) >= 2 or bool(config.sensitivities and not scenarios)
+        compare_index = None
+        if wanted and not only_pages:
+            from .compare import compare_site
 
-            index = write_index(landing_dir, landing)
-            report.written.append(index)
-            logger.info("landing page: %s -> %s", index, landing)
+            compare_report = compare_site(config, names=built if scenarios else None)
+            report.merge(compare_report)
+            compare_index = compare_report.index
 
-            # With a per-scenario layout each scenario's pages live in its own
-            # results tree, so add one index at their common root too.
-            if config.output_is_per_scenario:
-                root = config.common_output_root()
-                rel = os.path.relpath(landing_dir / landing, root).replace(os.sep, "/")
+        if config.output.write_index and (len(built) > 1 or compare_index is not None):
+            root = config.common_output_root()
+            if compare_index is not None:
+                target = compare_index
+            else:
+                landing_scenario = config.landing_scenario.name
+                target = config.output_dir(landing_scenario) / _landing_filename(
+                    config, manifest, scenario=landing_scenario
+                )
+            if target.parent != root:
+                rel = os.path.relpath(target, root).replace(os.sep, "/")
                 root_index = write_index(root, rel)
                 report.written.append(root_index)
                 logger.info("site entry point: %s -> %s", root_index, rel)
@@ -331,10 +451,12 @@ def build_site(
     return report
 
 
-def _landing_filename(config: Config, manifest: Manifest) -> str:
-    """The page ``index.html`` redirects to, from ``landing:`` in the config."""
+def _landing_filename(
+    config: Config, manifest: Manifest, *, scenario: str | None = None
+) -> str:
+    """The page a scenario's ``index.html`` redirects to (``landing:``)."""
     node = config.landing.node or config.nodes.focus
-    scenario = config.landing_scenario.name
+    scenario = scenario or config.landing_scenario.name
     try:
         page: Page = manifest[config.landing.page]
     except KeyError:

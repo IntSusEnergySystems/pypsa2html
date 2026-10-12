@@ -26,7 +26,12 @@ and the sweep says what the points mean::
 
 Nothing here is model-specific: the metric names a table any PyPSA-Eur results
 tree produces (:mod:`pypsa2html.extract.tables`) or an indicator frame, and the
-rows are selected by label.
+rows are selected by label -- see :mod:`pypsa2html.metrics`, which reads the
+same way for the key figures.
+
+The sweep page is part of the comparison report: ``ctx`` is a
+:class:`~pypsa2html.compare.CompareContext` and each point is read back from
+its summary file, never from its networks.
 """
 
 from __future__ import annotations
@@ -36,10 +41,8 @@ import logging
 import pandas as pd
 import plotly.graph_objects as go
 
-from .. import indicators
 from ..config import format_number
-from ..context import BuildContext, build_context
-from ..extract.tables import capacity_table, cost_table
+from ..metrics import metric_series
 from .base import (
     CHART_HEIGHT,
     FONT_SIZE,
@@ -90,7 +93,7 @@ def sweep(ctx, node: str, section) -> go.Figure | Html | None:
         )
     spec = ctx.config.sensitivity(sweep_id)
     points = ctx.config.sweep_points(sweep_id)
-    contexts = _point_contexts(ctx, points)
+    contexts = _point_data(ctx, sweep_id)
     if not contexts:
         return _note(
             f"No solved results for the {spec.label!r} sweep yet "
@@ -155,128 +158,16 @@ def _default_node(ctx) -> str:
     return str(ctx.nodes.focus)
 
 
-def _point_contexts(ctx, points) -> list[tuple[object, BuildContext]]:
-    """``(point scenario, context)`` for every sweep point with results on disk.
+def _point_data(ctx, sweep_id: str) -> list:
+    """``(point scenario, ScenarioData)`` for every sweep point with a summary.
 
-    Reuses the site-wide context pool, so a sweep read from eight scenarios'
-    copies of the shared page loads each point's networks once.
+    The comparison loads them once (``ctx.sweeps``); a point without a usable
+    summary is absent, so the curve is drawn over what is available.
     """
-    key = ("sensitivity_contexts", tuple(p.name for p in points))
-    cached = ctx._files.get(key)
-    if cached is not None:
-        return cached
-
-    pool = ctx._files.get(("_context_pool",))
-    config = ctx.config
-    out: list[tuple[object, BuildContext]] = []
-    for point in points:
-        results_dir = config.results_dir(point.name)
-        if not results_dir.exists():
-            logger.warning(
-                "sweep point %s: results_dir missing, skipping: %s",
-                point.name,
-                results_dir,
-            )
-            continue
-        try:
-            if isinstance(pool, dict):
-                if point.name not in pool:
-                    sctx = build_context(config, point.name)
-                    sctx._files[("_context_pool",)] = pool
-                    pool[point.name] = sctx
-                out.append((point, pool[point.name]))
-            else:
-                out.append((point, build_context(config, point.name)))
-        except (FileNotFoundError, ValueError) as exc:
-            logger.warning("sweep point %s: %s", point.name, exc)
-            continue
-
-    ctx._files[key] = out
-    return out
-
-
-def _metric_table(sctx: BuildContext, node: str, metric) -> pd.DataFrame | None:
-    """The table a metric reads, as rows x year-string columns."""
-    if metric.table == "capacity":
-        return capacity_table(sctx, node, metric.kind)
-    if metric.table == "cost":
-        return cost_table(sctx, node, metric.kind)
-    if metric.table == "indicator":
-        data = indicators.for_node(sctx, node)
-        if data is None:
-            return None
-        if not hasattr(data, metric.field):
-            raise ValueError(
-                f"indicator frame {metric.field!r} does not exist; available: "
-                f"{_indicator_fields(data)}"
-            )
-        frame = getattr(data, metric.field)
-        if not isinstance(frame, pd.DataFrame):
-            raise ValueError(
-                f"indicator {metric.field!r} is a {type(frame).__name__}, not a "
-                f"table of rows by year; a sweep metric needs one of "
-                f"{_indicator_fields(data)}"
-            )
-        # Indicator frames are years x codes; every other table is rows x years.
-        out = frame.T
-        out.columns = [str(c) for c in out.columns]
-        return out
-    raise ValueError(f"unsupported sensitivity metric table {metric.table!r}")
-
-
-def _indicator_fields(data) -> list[str]:
-    """Public attributes of an ``Indicators`` object that are plain tables."""
-    out = []
-    for name in sorted(dir(data)):
-        if name.startswith("_"):
-            continue
-        try:
-            if isinstance(getattr(data, name), pd.DataFrame):
-                out.append(name)
-        except Exception:  # noqa: BLE001 - a broken frame must not mask the error
-            continue
-    return out
-
-
-def _select_rows(table: pd.DataFrame, rows: list[str]) -> pd.DataFrame:
-    """Rows of ``table`` named by ``rows``, matched case-insensitively."""
-    if not rows:
-        return table
-    lookup: dict[str, list] = {}
-    for label in table.index:
-        lookup.setdefault(str(label).strip().lower(), []).append(label)
-    keep: list = []
-    for wanted in rows:
-        found = lookup.get(str(wanted).strip().lower())
-        if found:
-            keep.extend(found)
-    return table.loc[keep] if keep else table.iloc[0:0]
-
-
-def _metric_series(sctx: BuildContext, node: str, metric) -> pd.Series | None:
-    """One sweep point's metric, indexed by year string.
-
-    A row the config asks for but the point does not carry reads **zero**, not
-    missing: the optimiser built none of it, which is a value on the curve.
-    A point with no table at all reads missing, so the line breaks rather than
-    dropping to zero and inventing a result.
-    """
-    table = _metric_table(sctx, node, metric)
-    if table is None:
-        return None
-    years = [str(y) for y in sctx.year_columns]
-    selected = _select_rows(table, metric.rows)
-    if metric.rows and selected.empty:
-        logger.info(
-            "sweep metric %s/%s: no row of %s matched %s in %s; reading zero",
-            metric.table,
-            metric.kind or metric.field,
-            node,
-            metric.rows,
-            sctx.scenario.name,
-        )
-    selected = selected.reindex(columns=years, fill_value=0.0)
-    return selected.sum(axis=0).astype(float) * float(metric.scale)
+    sweeps = getattr(ctx, "sweeps", None)
+    if not isinstance(sweeps, dict):
+        return []
+    return list(sweeps.get(sweep_id, []))
 
 
 def _sweep_frame(contexts, node: str, metric) -> pd.DataFrame | None:
@@ -287,7 +178,7 @@ def _sweep_frame(contexts, node: str, metric) -> pd.DataFrame | None:
     """
     rows: dict[float, pd.Series] = {}
     for point, sctx in contexts:
-        series = _metric_series(sctx, node, metric)
+        series = metric_series(sctx, node, metric)
         if series is None:
             logger.warning(
                 "sweep point %s: metric %s unavailable for %s",

@@ -213,7 +213,10 @@ def test_every_builder_is_well_formed():
 
 def test_section_scope():
     m = load_manifest()
-    section = next(s for s in m["overview"].sections if s.id == "energy_independence")
+    compare = load_manifest(site="compare")
+    section = next(
+        s for s in compare["overview"].sections if s.id == "energy_independence"
+    )
 
     class Node:
         def __init__(self, aggregate):

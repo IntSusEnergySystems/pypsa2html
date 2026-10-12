@@ -27,6 +27,10 @@ GENERATED_KIND = "sensitivity"
 #: Which nodes a section applies to.
 SCOPES = frozenset({"all", "real", "aggregate"})
 
+#: The two reports a page can belong to: one run (``scenario``) or several,
+#: read from their summary files (``compare``).  See D24.
+SITES = frozenset({"scenario", "compare"})
+
 
 @dataclass(frozen=True)
 class Section:
@@ -57,6 +61,8 @@ class Page:
     kind: str = "single_scenario"
     #: True for pages whose content does not depend on the selected node.
     shared: bool = False
+    #: ``scenario`` (one run) or ``compare`` (the comparison report).
+    site: str = "scenario"
 
     def filename(self, node: str, scenario: str) -> str:
         """Output file name.  Kept compatible with the legacy convention."""
@@ -124,6 +130,7 @@ def load_manifest(
     enable: dict[str, bool] | None = None,
     include_pages: list[str] | None = None,
     sensitivities=None,
+    site: str = "scenario",
 ) -> Manifest:
     """Load the manifest, apply per-section toggles and page selection.
 
@@ -137,7 +144,13 @@ def load_manifest(
     of the page marked ``kind: sensitivity``; with none declared that page has
     no sections and drops out of the site entirely, which is what a report
     without sweeps should look like.
+
+    ``site`` picks the report: ``scenario`` (one run, ``output.pages``) or
+    ``compare`` (the comparison report, ``compare.pages``).  Section ids are
+    unique across both, so one ``plots:`` block switches either.
     """
+    if site not in SITES:
+        raise ValueError(f"site must be one of {sorted(SITES)}, got {site!r}")
     with open(path or MANIFEST_PATH) as f:
         raw = yaml.safe_load(f) or {}
 
@@ -147,6 +160,11 @@ def load_manifest(
     pages: list[Page] = []
 
     for page_raw in raw.get("pages", []):
+        page_site = page_raw.get("site", "scenario")
+        if page_site not in SITES:
+            raise ValueError(
+                f"page {page_raw.get('id')!r}: site must be one of {sorted(SITES)}"
+            )
         sections = list(generated) if page_raw.get("kind") == GENERATED_KIND else []
         for s in page_raw.get("sections", []):
             sid = s["id"]
@@ -181,6 +199,7 @@ def load_manifest(
                 sections=tuple(sections),
                 kind=page_raw.get("kind", "single_scenario"),
                 shared=bool(page_raw.get("shared", False)),
+                site=page_site,
             )
         )
 
@@ -191,12 +210,21 @@ def load_manifest(
             f"Valid ids: {sorted(all_section_ids)}"
         )
 
+    duplicated = sorted({
+        p.id for p in pages
+        if sum(1 for q in pages if q.id == p.id and q.site == p.site) > 1
+    })
+    if duplicated:
+        raise ValueError(f"duplicate page id(s) {duplicated} within one site")
+    pages = [p for p in pages if p.site == site]
+
     if include_pages is not None:
         known = {p.id for p in pages}
         missing = [p for p in include_pages if p not in known]
         if missing:
+            where = "output.pages" if site == "scenario" else "compare.pages"
             raise ValueError(
-                f"output.pages refers to unknown page(s) {missing}. Valid: {sorted(known)}"
+                f"{where} refers to unknown page(s) {missing}. Valid: {sorted(known)}"
             )
         order = {pid: i for i, pid in enumerate(include_pages)}
         pages = sorted((p for p in pages if p.id in order), key=lambda p: order[p.id])

@@ -60,12 +60,18 @@ scenarios:
 landing:
   scenario: scen_demande_haute   # the most recently solved scenario
   node: BEWAL
-  page: overview
+  page: key_figures
 
 output:
   # {scenario} puts each scenario's pages beside that scenario's own csvs/,
   # graphs/ and networks/, so the whole results tree uploads to S3 as one unit.
   dir: results/walloon/{scenario}/html
-  pages: [overview, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
+  pages: [key_figures, emissions, sankeys, fec, demands, costs, capacities, dispatch, maps]
   shared_maps: true
   plotly: cdn
+
+# The comparison report, built from every scenario's summary.csv/summary.json
+# by `pypsa2html build` (two or more scenarios) or `pypsa2html compare`.
+compare:
+  reference: scen_demande_haute
+  dir: results/walloon/compare

@@ -2,8 +2,9 @@
 
 The point of the feature is that six runs differing in one number stop being
 six scenarios, so most of these tests pin what a sweep point is *absent* from:
-the scenario dropdown, the cross-scenario overview and the set of scenarios
-pages are built for.
+the set of scenarios pages are built for and the scenarios the comparison
+report sets side by side.  The sweep page itself belongs to the comparison
+report and reads each point from its summary file.
 """
 
 from __future__ import annotations
@@ -142,7 +143,7 @@ def test_unknown_metric_table_is_rejected(tmp_path):
     raw = yaml.safe_load(path.read_text())
     raw["sensitivities"][0]["metrics"][0]["table"] = "capacities"
     path.write_text(yaml.safe_dump(raw))
-    with pytest.raises(ValueError, match="metric table must be one of"):
+    with pytest.raises(ValueError, match="metric source must be one of"):
         load_config(path)
 
 
@@ -155,24 +156,32 @@ def test_description_is_folded_into_texts(tmp_path):
     assert cfg.texts["sensitivity_capex"]["default"].startswith("<p>Read")
 
 
-def test_pinned_output_pages_gain_the_sensitivity_page(tmp_path):
-    """A project that pinned output.pages before sweeps existed keeps working."""
-    cfg = load_config(_write(tmp_path, output={"pages": ["overview", "costs"]}))
-    assert cfg.output.pages == ["overview", "costs", "sensitivity"]
+def test_pinned_compare_pages_gain_the_sensitivity_page(tmp_path):
+    """A project that pinned compare.pages before sweeps existed keeps working."""
+    cfg = load_config(_write(tmp_path, compare={"pages": ["key_figures", "overview"]}))
+    assert cfg.compare.pages == ["key_figures", "overview", "sensitivity"]
 
 
-def test_output_pages_untouched_without_sweeps(tmp_path):
+def test_a_legacy_output_pages_list_moves_to_the_comparison(tmp_path):
+    """`overview`/`sensitivity` compare runs: they leave the scenario report."""
+    cfg = load_config(_write(tmp_path, output={"pages": ["overview", "sensitivity", "costs"]}))
+    assert cfg.output.pages == ["key_figures", "costs"]
+    assert "overview" in cfg.compare.pages
+    assert "sensitivity" in cfg.compare.pages
+
+
+def test_compare_pages_untouched_without_sweeps(tmp_path):
     path = tmp_path / "plain.yaml"
     path.write_text(
         yaml.safe_dump(
             {
                 "root": str(tmp_path),
                 "scenarios": [{"name": "one", "results_dir": "r"}],
-                "output": {"pages": ["overview"]},
+                "compare": {"pages": ["key_figures"]},
             }
         )
     )
-    assert load_config(path).output.pages == ["overview"]
+    assert load_config(path).compare.pages == ["key_figures"]
 
 
 # -- manifest ---------------------------------------------------------------
@@ -181,8 +190,9 @@ def test_one_section_is_generated_per_sweep(tmp_path):
     cfg = load_config(_write(tmp_path))
     manifest = load_manifest(
         enable=cfg.plots,
-        include_pages=cfg.output.pages,
+        include_pages=cfg.compare.pages,
         sensitivities=cfg.sensitivities,
+        site="compare",
     )
     page = manifest["sensitivity"]
     assert page.shared is True
@@ -195,15 +205,21 @@ def test_one_section_is_generated_per_sweep(tmp_path):
 
 
 def test_the_page_disappears_without_sweeps():
-    assert "sensitivity" not in load_manifest().ids
+    assert "sensitivity" not in load_manifest(site="compare").ids
+
+
+def test_the_sweep_page_is_not_a_scenario_page(tmp_path):
+    cfg = load_config(_write(tmp_path))
+    assert "sensitivity" not in load_manifest(sensitivities=cfg.sensitivities).ids
 
 
 def test_a_sweep_section_can_be_switched_off(tmp_path):
     cfg = load_config(_write(tmp_path, plots={"sensitivity_capex": False}))
     manifest = load_manifest(
         enable=cfg.plots,
-        include_pages=cfg.output.pages,
+        include_pages=cfg.compare.pages,
         sensitivities=cfg.sensitivities,
+        site="compare",
     )
     assert "sensitivity" not in manifest.ids
 
@@ -224,11 +240,28 @@ class _Point:
 
 @dataclass
 class _Sctx:
-    """Just enough context for the metric readers."""
+    """A fake ScenarioData: one capacity table, as a summary would return it."""
 
     scenario: object
-    table: pd.DataFrame | None
+    capacity: pd.DataFrame | None
     year_columns: list[str] = field(default_factory=lambda: ["2030", "2050"])
+    meta: dict = field(default_factory=dict)
+
+    @property
+    def name(self):
+        return self.scenario.name
+
+    def table(self, node, key):
+        return None if self.capacity is None else self.capacity.copy()
+
+    def read_file(self, relpath, **kwargs):
+        return None
+
+    def locations_for(self, node):
+        return [node]
+
+    def stored_kpi(self, node, kpi):
+        return None
 
 
 def _contexts(tables: dict[int, pd.DataFrame | None]):
@@ -236,13 +269,14 @@ def _contexts(tables: dict[int, pd.DataFrame | None]):
     for value, table in tables.items():
         marker = type("S", (), {"value": float(value), "label": str(value)})()
         point = _Point(name=f"p{value}", sensitivity=marker)
-        out.append((point, _Sctx(scenario=point, table=table)))
+        out.append((point, _Sctx(scenario=point, capacity=table)))
     return out
 
 
 @pytest.fixture
-def capacity_stub(monkeypatch):
-    monkeypatch.setattr(sens, "capacity_table", lambda sctx, node, kind: sctx.table)
+def capacity_stub():
+    """Kept for the tests' signatures: the fake data needs no patching now."""
+    return None
 
 
 def _metric(**kw):
@@ -408,10 +442,9 @@ def test_the_title_names_the_chart_and_the_menu_names_the_view(tmp_path, capacit
 def test_an_unsolved_sweep_renders_a_note_not_an_empty_section(tmp_path, monkeypatch):
     """A dropped section leaves the nav entry every other page already carries."""
     cfg = load_config(_write(tmp_path))
-    manifest = load_manifest(sensitivities=cfg.sensitivities)
+    manifest = load_manifest(sensitivities=cfg.sensitivities, site="compare")
     section = manifest["sensitivity"].sections[0]
-    ctx = type("Ctx", (), {"config": cfg, "_files": {}})()
-    monkeypatch.setattr(sens, "_point_contexts", lambda *a, **k: [])
+    ctx = type("Ctx", (), {"config": cfg, "_files": {}, "sweeps": {}})()
     result = sens.sweep(ctx, "AA", section)
     assert result is not None
     assert "No solved results" in result.__html__()
@@ -419,11 +452,23 @@ def test_an_unsolved_sweep_renders_a_note_not_an_empty_section(tmp_path, monkeyp
 
 # -- the build loop ---------------------------------------------------------
 
-def test_the_scenario_switcher_never_offers_a_sweep_point(tmp_path):
-    from pypsa2html.build import _scenario_prefixes
+def test_the_comparison_never_sets_a_sweep_point_beside_the_scenarios(tmp_path):
+    from pypsa2html.compare import resolve_sources
 
     cfg = load_config(_write(tmp_path, output={"dir": "results/{scenario}/html"}))
-    assert set(_scenario_prefixes(cfg, "central")) == {"central"}
+    assert [s.name for s in resolve_sources(cfg)] == ["central"]
+
+
+def test_sweep_points_are_read_from_the_comparison_context(tmp_path):
+    cfg = load_config(_write(tmp_path))
+    points = _contexts({4500: _table((1030, 3000)), 9500: _table((1030, 1030))})
+    from pypsa2html.datafiles import load_taxonomy
+
+    ctx = type("Ctx", (), {"config": cfg, "_files": {}, "sweeps": {"capex": points},
+                           "nodes": [], "taxonomy": load_taxonomy()})()
+    manifest = load_manifest(sensitivities=cfg.sensitivities, site="compare")
+    fig = sens.sweep(ctx, "AA", manifest["sensitivity"].sections[0])
+    assert fig is not None and len(fig.data) == 4   # 2 horizons + 2 points
 
 
 def test_sweep_directories_do_not_raise_the_site_root(tmp_path):

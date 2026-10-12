@@ -2,8 +2,10 @@
 
 Typical use::
 
-    from pypsa2html import load_config, build_site
-    build_site(load_config("config/my-model.yaml"))
+    from pypsa2html import load_config, build_site, compare_site
+    cfg = load_config("config/my-model.yaml")
+    build_site(cfg, scenarios=["central"])      # one scenario report + summary
+    compare_site(cfg, ["results/central", "results/variant"])   # the comparison
 
 The package is a restructured, model-agnostic successor to the legacy reporting scripts
 used in the négaWatt PyPSA-Eur studies.  See ``docs/DESIGN_DECISIONS.md`` for
@@ -33,6 +35,7 @@ __all__ = [
     "Section",
     "load_manifest",
     "build_site",
+    "compare_site",
     "self_sufficiency",
 ]
 
@@ -47,6 +50,16 @@ def build_site(config, **kwargs):
     from .build import build_site as _build_site
 
     return _build_site(config, **kwargs)
+
+
+def compare_site(config, sources=None, **kwargs):
+    """Build the comparison report from the scenarios' summary files.
+
+    See :func:`pypsa2html.compare.compare_site`.
+    """
+    from .compare import compare_site as _compare_site
+
+    return _compare_site(config, sources, **kwargs)
 
 
 def self_sufficiency(ctx, node: str | None = None, *, members=None):

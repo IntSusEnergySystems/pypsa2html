@@ -6,9 +6,15 @@ objects every builder receives and the shape every builder must return.
 ```
 config.yaml ─┐
              ├─► BuildContext ─► extract.* ─► DataFrames ─► charts.* ─► Figures ─► report.render ─► HTML
-data/*.csv ──┘                      │                                                    ▲
-                                    └────────────── pages.yaml (manifest) ───────────────┘
+data/*.csv ──┘        │             │                                                    ▲
+                      │             └────────────── pages.yaml (manifest) ───────────────┤
+                      └─► metrics.ContextScenarioData ─► summary.csv/.json              │
+                                                             │                           │
+            summaries of N runs ─► SummaryScenarioData ─► CompareContext ─► charts.* ───┘
 ```
+
+A scenario report is built from one `BuildContext`; the comparison report from
+the summary files of several runs, through a `CompareContext` (§7, D24).
 
 ## 1. `BuildContext` (`pypsa2html/context.py`)
 
@@ -190,9 +196,44 @@ pointing at nothing.
 is simultaneously the HTML anchor, the `plots:` toggle key and the `texts:`
 narrative key — there is exactly one vocabulary.
 
-Navigation (region selector, scenario selector, page list) is generated from
-the node set, scenario list and manifest by the Jinja template. There is no
-hardcoded JavaScript per node or per scenario.
+Navigation (region selector, page list) is generated from the node set and
+the manifest by the Jinja template. There is no hardcoded JavaScript per node,
+and no scenario selector: a page links only within its own report (D24). Every
+file name ends with a *tag* — the scenario name, or `compare.name` for the
+comparison report.
+
+## 7. Scenario data, metrics and the comparison (`metrics.py`, `summary.py`, `compare.py`)
+
+Anything that reads *a number per planning horizon* — a key figure, a sweep
+point, a comparison chart — goes through the `ScenarioData` protocol:
+
+| Member | Notes |
+|---|---|
+| `name`, `label`, `year_columns`, `meta` | `meta` is the summary's `summary.json` (empty when live) |
+| `table(node, key)` | rows × year-string columns, or `None` when the run has no such table. `key` is `family.kind`: `capacity.power`, `cost.total`, `indicator.ghg_sector`, `self_sufficiency.ratio`, `flow.co2`, `balance.electricity`, `price.electricity`, `global.objective`, … Node-independent tables use node `metrics.SYSTEM` (`"_system"`) |
+| `read_file(relpath, **kw)` | a CSV in the run's results tree, or `None` (for `source: csv`) |
+| `locations_for(node)` | as on `BuildContext` |
+| `stored_kpi(node, kpi)` | the KPI's value as written in the summary, if its definition digest matches |
+
+`ContextScenarioData(ctx)` computes the tables from a `BuildContext` (cached in
+`ctx._files`); `SummaryScenarioData.load(path)` reads them back from a summary.
+`metrics.metric_series(data, node, metric)` evaluates a `Metric` against either;
+a missing *row* reads zero for quantities and `None` for prices, ratios and
+project files, a missing *table* always reads `None`.
+
+A table family needing the networks (`balance`, `price`, `global`) loops over
+the horizons *once for every node* and caches the result, so a bounded network
+cache loads each network once per family.
+
+Comparison-page builders receive a `CompareContext` instead of a
+`BuildContext`: `config`, `taxonomy`, `nodes` (the union of the runs' nodes),
+`scenarios` (`{label: SummaryScenarioData}`, reference first), `reference`,
+`sources` (with summary status), `sweeps` and `kpis`. They must not touch
+`ctx.networks` — there is none.
+
+Adding a table family: compute it in `ContextScenarioData._compute`, list it in
+`summary.NODE_TABLES` if the comparison charts need it whatever the KPIs, and
+register it in `metrics.SOURCES` if a KPI may read it.
 
 ## 6. Rules of thumb for porting
 

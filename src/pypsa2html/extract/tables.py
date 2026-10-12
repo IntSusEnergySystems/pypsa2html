@@ -461,6 +461,10 @@ def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
     (the uranium bus).  The legacy reporter instead took
     ``p_nom_opt * efficiency`` on links whose *delivery* bus sits in the
     selected node.  Replicate that here so country panels are not blank.
+
+    The per-plant table of each horizon is read once and cached on the
+    context: with a bounded network cache, reading it again for every node
+    reloaded every network once per region.
     """
     years = [str(y) for y in ctx.year_columns]
     out = pd.Series(0.0, index=years, dtype=float)
@@ -469,35 +473,54 @@ def _nuclear_electric_mw(ctx: BuildContext, node: str) -> pd.Series:
 
     locations = _node_locations(ctx, node)
     for horizon in ctx.horizons:
-        try:
-            network = ctx.networks[horizon]
-        except Exception:  # noqa: BLE001 - missing / stub networks are fine
-            continue
-        links = getattr(network, "links", None)
-        if links is None or getattr(links, "empty", True):
-            continue
-        if "carrier" not in links.columns or "p_nom_opt" not in links.columns:
-            continue
-        nuc = links.loc[links["carrier"].astype(str) == "nuclear"]
-        if nuc.empty:
+        plants = _nuclear_plants(ctx, horizon)
+        if plants is None or plants.empty:
             continue
         if locations is not None:
-            buses = getattr(network, "buses", None)
-            if buses is not None and "location" in buses.columns:
-                dest = nuc["bus1"].map(buses["location"])
-            else:
-                dest = nuc["bus1"].astype(str)
-            nuc = nuc.loc[dest.astype(str).isin([str(c) for c in locations])]
-        if nuc.empty:
+            plants = plants.loc[plants["location"].isin([str(c) for c in locations])]
+        if plants.empty:
             continue
+        out[str(horizon)] = float(plants["mw_e"].sum())
+    return out
+
+
+def _nuclear_plants(ctx: BuildContext, horizon: int) -> pd.DataFrame | None:
+    """``location, mw_e`` of every nuclear Link of one horizon (cached)."""
+    files = getattr(ctx, "_files", None)
+    key = ("nuclear_plants", int(horizon))
+    if isinstance(files, dict) and key in files:
+        return files[key]
+    plants = None
+    try:
+        network = ctx.networks[horizon]
+    except Exception:  # noqa: BLE001 - missing / stub networks are fine
+        network = None
+    links = getattr(network, "links", None) if network is not None else None
+    if (
+        links is not None
+        and not getattr(links, "empty", True)
+        and "carrier" in links.columns
+        and "p_nom_opt" in links.columns
+    ):
+        nuc = links.loc[links["carrier"].astype(str) == "nuclear"]
+        buses = getattr(network, "buses", None)
+        if buses is not None and "location" in buses.columns:
+            dest = nuc["bus1"].map(buses["location"])
+        else:
+            dest = nuc["bus1"].astype(str)
         eff = (
             pd.to_numeric(nuc["efficiency"], errors="coerce").fillna(1.0)
             if "efficiency" in nuc.columns
             else 1.0
         )
         p_nom = pd.to_numeric(nuc["p_nom_opt"], errors="coerce").fillna(0.0)
-        out[str(horizon)] = float((p_nom * eff).sum())
-    return out
+        plants = pd.DataFrame(
+            {"location": dest.astype(str).to_numpy(), "mw_e": (p_nom * eff).to_numpy()},
+            index=nuc.index,
+        )
+    if isinstance(files, dict):
+        files[key] = plants
+    return plants
 
 
 def _p2h_scaling(ctx: BuildContext) -> dict[str, float]:

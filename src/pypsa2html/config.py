@@ -14,6 +14,7 @@ codes) lives in packaged CSVs -- see :mod:`pypsa2html.datafiles`.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import logging
 import re
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import yaml
+
+from .metrics import KPI, SOURCES, Metric, load_kpis
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +215,7 @@ class LandingConfig:
 
     scenario: str | None = None
     node: str | None = None
-    page: str = "overview"
+    page: str = "key_figures"
 
 
 @dataclass
@@ -274,35 +277,15 @@ class FeaturesConfig:
         self.nuclear_primary = mode
 
 
-#: Result tables a sensitivity metric can be read from.  Each entry gives the
-#: extractor's ``kind`` vocabulary, the default kind, and the display defaults
-#: (a MW capacity table is plotted in GW, a EUR cost table as it stands).
-#: Adding a table here is the whole cost of supporting a new metric.
+#: Result tables a sensitivity metric can be read from -- the first three
+#: sources of :data:`pypsa2html.metrics.SOURCES`, kept under the name the
+#: sweeps introduced.  Every source of that registry is accepted.
 SENSITIVITY_TABLES: dict[str, dict[str, Any]] = {
-    "capacity": {
-        "kinds": ("power", "storage", "ccs"),
-        "default_kind": "power",
-        "scale": 1e-3,
-        "units": {"power": "GW", "storage": "GWh", "ccs": "GW"},
-    },
-    "cost": {
-        "kinds": ("total", "capital", "marginal", "clustered"),
-        "default_kind": "total",
-        "scale": 1.0,
-        "units": {},
-        "default_unit": "EUR/year",
-    },
-    # Any flat DataFrame attribute of pypsa2html.indicators.Indicators
-    # (``ghg_sector``, ``fec_carrier``, ...).  Rows are taxonomy *codes*.
-    "indicator": {
-        "kinds": (),
-        "default_kind": "",
-        "scale": 1.0,
-        "units": {},
-        "default_unit": "",
-        "needs_field": True,
-    },
+    k: SOURCES[k] for k in ("capacity", "cost", "indicator")
 }
+
+#: What a sweep chart reads off each solved point -- a :class:`Metric`.
+SensitivityMetric = Metric
 
 
 @dataclass
@@ -311,57 +294,6 @@ class SensitivityParameter:
 
     label: str = "Parameter"
     unit: str = ""
-
-
-@dataclass
-class SensitivityMetric:
-    """What a sweep chart reads off each solved point (the y axis).
-
-    ``rows`` selects lines of the extracted table by their row label — the
-    grouped technology name for ``capacity``/``cost``, the taxonomy code for
-    ``indicator``.  Several rows are summed; an empty list sums the whole
-    table.  A row missing from a point's table counts as zero, which is the
-    truthful reading: the optimiser built none of it.
-    """
-
-    table: str = "capacity"
-    kind: str = ""
-    field: str = ""
-    rows: list[str] = dc_field(default_factory=list)
-    label: str = ""
-    unit: str = ""
-    scale: float | None = None
-
-    def __post_init__(self):
-        self.table = str(self.table).strip().lower()
-        spec = SENSITIVITY_TABLES.get(self.table)
-        if spec is None:
-            raise ValueError(
-                f"sensitivity metric table must be one of "
-                f"{sorted(SENSITIVITY_TABLES)}, got {self.table!r}"
-            )
-        self.kind = str(self.kind or spec["default_kind"])
-        if spec["kinds"] and self.kind not in spec["kinds"]:
-            raise ValueError(
-                f"sensitivity metric kind for table {self.table!r} must be one of "
-                f"{list(spec['kinds'])}, got {self.kind!r}"
-            )
-        self.field = str(self.field or "")
-        if spec.get("needs_field") and not self.field:
-            raise ValueError(
-                f"sensitivity metric table {self.table!r} needs a 'field' naming "
-                "the indicator frame to read (e.g. ghg_sector, fec_carrier)"
-            )
-        self.rows = [str(r) for r in (self.rows or [])]
-        if self.scale is None:
-            self.scale = float(spec["scale"])
-        else:
-            self.scale = float(self.scale)
-        if not self.unit:
-            self.unit = str(spec["units"].get(self.kind, spec.get("default_unit", "")))
-        if not self.label:
-            subject = ", ".join(self.rows) if self.rows else "total"
-            self.label = f"{subject} {self.field or self.kind} {self.table}".strip()
 
 
 @dataclass
@@ -438,6 +370,9 @@ class OutputConfig:
     #: Write the per-chart data workbook next to the HTML.
     chart_data: bool = True
     write_index: bool = True
+    #: Link from every scenario page to the comparison report (relative to
+    #: the scenario's output directory, or absolute).  ``None`` = no link.
+    compare_url: str | None = None
     #: Raise instead of warning when a Sankey transformation node does not
     #: conserve energy.  A published Sankey with an unbalanced electricity node
     #: is a wrong page, not a cosmetic one, but making it fatal by default would
@@ -445,6 +380,79 @@ class OutputConfig:
     #: ``graph_imbalances.csv`` and logs a consolidated summary, and a caller
     #: that wants a gate turns this on.
     fail_on_graph_imbalance: bool = False
+
+
+@dataclass
+class SummaryConfig:
+    """The ``summary.csv``/``summary.json`` a scenario build writes (D24)."""
+
+    enabled: bool = True
+    #: Include the energy and carbon graph edges (``flow.*`` tables).
+    flows: bool = True
+    #: Extra table keys (``family.kind``) to write for every node.
+    tables: list[str] = field(default_factory=list)
+
+
+#: Page ids of the comparison report, in default navigation order.
+COMPARE_PAGES = ("key_figures", "overview", "sensitivity", "scenarios")
+
+
+@dataclass
+class CompareConfig:
+    """The cross-scenario comparison report -- built from scenario summaries."""
+
+    #: ``auto``: after ``build`` of two or more scenarios (or when sweeps are
+    #: declared); ``true``: always; ``false``: never (``pypsa2html compare``
+    #: still works).
+    enabled: Any = "auto"
+    #: File-name tag of the comparison pages (``<node>_<page>_<name>.html``).
+    name: str = "compare"
+    title: str = "Scenario comparison"
+    #: Output directory.  ``None`` = ``compare/`` under the common root of the
+    #: scenarios' output directories.
+    dir: str | None = None
+    #: Scenario the differences are taken against.  ``None`` = the first one.
+    reference: str | None = None
+    #: Scenario names to compare, in order.  Empty = every browsable scenario.
+    scenarios: list[str] = field(default_factory=list)
+    pages: list[str] = field(default_factory=lambda: list(COMPARE_PAGES))
+    #: Years offered in the key-figures table.  ``None`` = every horizon.
+    years: list[str] | None = None
+    #: ``{node, page}`` the comparison's ``index.html`` opens on.
+    landing: dict = field(default_factory=dict)
+    #: Link to each scenario's own report: a URL template with ``{scenario}``
+    #: (and optionally ``{node}``), e.g. ``https://host/{scenario}/index.html``.
+    #: ``None`` = a relative link to the summary's directory.
+    report_url: str | None = None
+    #: What to do with a summary that is missing, stale or incompatible:
+    #: ``warn`` (use a stale one, skip the others, say so), ``skip``, ``fail``.
+    on_stale: str = "warn"
+    #: Flag scenarios whose networks were solved more than this many days apart.
+    vintage_warn_days: float = 3.0
+
+    def __post_init__(self):
+        if isinstance(self.enabled, str):
+            value = self.enabled.strip().lower()
+            if value not in ("auto", "true", "false"):
+                raise ValueError(
+                    f"compare.enabled must be auto, true or false, got {self.enabled!r}"
+                )
+            self.enabled = "auto" if value == "auto" else value == "true"
+        elif not isinstance(self.enabled, bool):
+            raise ValueError(f"compare.enabled must be auto, true or false, got {self.enabled!r}")
+        if self.on_stale not in ("warn", "skip", "fail"):
+            raise ValueError(
+                f"compare.on_stale must be warn, skip or fail, got {self.on_stale!r}"
+            )
+        self.scenarios = [str(s) for s in (self.scenarios or [])]
+        self.pages = [str(p) for p in (self.pages or [])]
+        if self.years is not None:
+            self.years = [str(y) for y in self.years]
+        self.landing = dict(self.landing or {})
+        unknown = set(self.landing) - {"node", "page"}
+        if unknown:
+            raise ValueError(f"compare.landing accepts node and page only, got {sorted(unknown)}")
+        self.vintage_warn_days = float(self.vintage_warn_days)
 
 
 @dataclass
@@ -460,6 +468,12 @@ class Config:
     features: FeaturesConfig = field(default_factory=FeaturesConfig)
     #: Declared parameter sweeps.  Empty for a report with no sensitivities.
     sensitivities: list[SensitivityConfig] = field(default_factory=list)
+    #: The comparison report.
+    compare: CompareConfig = field(default_factory=CompareConfig)
+    #: The per-scenario summary files.
+    summary: SummaryConfig = field(default_factory=SummaryConfig)
+    #: Key figures: packaged defaults (data/kpis.yaml) merged with ``kpis:``.
+    kpis: list[KPI] = field(default_factory=list)
     #: Directory the relative paths in this config resolve against.
     root: Path = field(default_factory=Path.cwd)
     raw: dict = field(default_factory=dict)
@@ -563,6 +577,57 @@ class Config:
             )
         return Path(os.path.commonpath(dirs)) if len(dirs) > 1 else Path(dirs[0]).parent
 
+    def summary_dir(self, scenario: str) -> Path:
+        """Directory a scenario's ``summary.csv``/``summary.json`` go to.
+
+        Beside its pages -- they describe the same run and are published with
+        them.  When every scenario shares one output folder, one sub-folder
+        per scenario keeps the files apart.
+        """
+        if self.output_is_per_scenario:
+            return self.output_dir(scenario)
+        return self.output_dir() / "summaries" / scenario
+
+    def compare_dir(self) -> Path:
+        """Directory the comparison report is written to."""
+        if self.compare.dir:
+            out = Path(self.compare.dir)
+            if not out.is_absolute():
+                out = self.root / out
+            return out.resolve()
+        if self.output_is_per_scenario:
+            return (self.common_output_root() / "compare").resolve()
+        return (self.output_dir() / "compare").resolve()
+
+    def with_scenario(
+        self,
+        name: str,
+        results_dir: str | Path,
+        *,
+        resources_dir: str | Path | None = None,
+        label: str | None = None,
+    ) -> Config:
+        """A copy reporting ``name`` from ``results_dir``, and landing on it.
+
+        Replaces any configured scenario of the same name (keeping its label,
+        description and sweep marker) -- a run must report the tree it was
+        given, not a same-named entry pointing elsewhere.
+        """
+        existing = next((s for s in self.scenarios if s.name == name), None)
+        entry = ScenarioConfig(
+            name=name,
+            label=label or (existing.label if existing is not None else name),
+            results_dir=str(results_dir),
+            resources_dir=str(resources_dir or ""),
+            description=existing.description if existing is not None else None,
+            sensitivity=existing.sensitivity if existing is not None else None,
+        )
+        scenarios = [s for s in self.scenarios if s.name != name] + [entry]
+        landing = dataclasses.replace(self.landing, scenario=name)
+        if entry.is_sweep_point:
+            landing = dataclasses.replace(self.landing)
+        return dataclasses.replace(self, scenarios=scenarios, landing=landing)
+
 
 def _as_dataclass(cls, data: dict):
     """Instantiate ``cls`` from ``data``, erroring on unknown keys."""
@@ -652,17 +717,25 @@ def load_config(path: str | Path, overrides: dict | None = None) -> Config:
             f"{detail} ({[s.name for s in browsable]})"
         )
 
+    output = _as_dataclass(OutputConfig, dict(merged.get("output", {})))
+    compare = _as_dataclass(CompareConfig, dict(merged.get("compare", {}) or {}))
+    _move_comparison_pages(output, compare, landing)
+    kpis = load_kpis(merged.get("kpis") or [], defaults=bool(merged.get("kpi_defaults", True)))
+
     cfg = Config(
         project=_as_dataclass(ProjectConfig, dict(merged.get("project", {}))),
         model=model,
         nodes=nodes,
-        output=_as_dataclass(OutputConfig, dict(merged.get("output", {}))),
+        output=output,
         landing=landing,
         scenarios=scenarios,
         plots=dict(merged.get("plots", {})),
         texts=dict(merged.get("texts", {})),
         features=_as_dataclass(FeaturesConfig, dict(merged.get("features", {}))),
         sensitivities=sensitivities,
+        compare=compare,
+        summary=_as_dataclass(SummaryConfig, dict(merged.get("summary", {}) or {})),
+        kpis=kpis,
         root=root,
         raw=merged,
     )
@@ -735,9 +808,53 @@ def _wire_sensitivities(cfg: Config) -> None:
     for sweep in cfg.sensitivities:
         if sweep.description and sweep.section_id not in cfg.texts:
             cfg.texts[sweep.section_id] = {"default": sweep.description}
-    if cfg.output.pages and SENSITIVITY_PAGE not in cfg.output.pages:
-        cfg.output.pages = [*cfg.output.pages, SENSITIVITY_PAGE]
+    if cfg.compare.pages and SENSITIVITY_PAGE not in cfg.compare.pages:
+        cfg.compare.pages = [*cfg.compare.pages, SENSITIVITY_PAGE]
         logger.info(
-            "sensitivities are configured; appending %r to output.pages",
+            "sensitivities are configured; appending %r to compare.pages",
             SENSITIVITY_PAGE,
         )
+
+
+#: Pages that left the scenario report for the comparison report (D24).
+_MOVED_PAGES = ("overview", SENSITIVITY_PAGE)
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, message: str, *args) -> None:
+    if key in _warned:
+        return
+    _warned.add(key)
+    logger.warning(message, *args)
+
+
+def _move_comparison_pages(output: OutputConfig, compare: CompareConfig, landing) -> None:
+    """Accept a config written before the comparison report existed.
+
+    ``overview`` (the cross-scenario charts) and ``sensitivity`` (the sweeps)
+    compare runs, so they are now pages of the comparison report: listed in
+    ``output.pages`` they are moved to ``compare.pages`` with a warning, and a
+    landing page of ``overview`` becomes ``key_figures``.
+    """
+    moved = [p for p in output.pages if p in _MOVED_PAGES]
+    if moved:
+        output.pages = [p for p in output.pages if p not in _MOVED_PAGES]
+        for page in moved:
+            if page not in compare.pages:
+                compare.pages.append(page)
+        if "key_figures" not in output.pages:
+            output.pages = ["key_figures", *output.pages]
+        _warn_once(
+            "moved_pages",
+            "output.pages lists %s: these compare scenarios and now belong to the "
+            "comparison report (compare.pages); key_figures opens the scenario report",
+            moved,
+        )
+    if landing.page in _MOVED_PAGES:
+        _warn_once(
+            "landing_overview",
+            "landing.page=%r is a comparison page now; the scenario report opens "
+            "on 'key_figures'",
+            landing.page,
+        )
+        landing.page = "key_figures"

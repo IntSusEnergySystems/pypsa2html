@@ -682,6 +682,12 @@ appears in the scenario dropdown, and is excluded from the cross-scenario
 overview. It feeds one generated section of the `sensitivity` page, declared
 under a top-level `sensitivities:` block.
 
+*Amended by D24 (2026-10-12):* the `sensitivity` page is a page of the
+comparison report, and each point is read from its summary file; a sweep point's
+build writes that summary and nothing else. A sweep metric is a
+`pypsa2html.metrics.Metric`, so every KPI source can be swept (`table:` is the
+older name of `source:`).
+
 Six runs that differ only in the investment cost of one technology answer a
 single question — how does the system respond to that number — and the answer
 is a curve, not six dashboards. Listing them as scenarios costs twice: six
@@ -768,4 +774,74 @@ own accounting and stay consistent with the objective.
 
 **Reversibility: Easy** — drop `features.network_costs` (or toggle the two
 sections off under `plots:`).
+
+
+## D24 — A scenario report is self-contained; the comparison reads summaries
+
+**Problem.** Until 2026-10-12 every scenario report carried the cross-scenario
+*overview* page and a scenario dropdown, and each overview chart loaded *every*
+configured scenario whose results tree existed at the moment *that* scenario was
+being reported. pypsa-wal builds one report per Snakemake job, so:
+
+* the scenario built first (the central, by procedure) compared itself with
+  nothing — one bar per horizon;
+* a scenario built later compared itself with whatever trees were on disk,
+  including older vintages: the 1 Oct central drew the 12 Sep sensitivities as if
+  they were comparable (pypsa-wal log 2026-10-06, issue I2);
+* the dropdown pointed at pages that were never built (the rule fixed
+  `output.dir`, so every link resolved to the scenario's own folder);
+* loading the sibling scenarios' networks was part of an OOM kill (same log, I1).
+
+The numbers the batch logs compare — objective and its difference to the
+central, CO₂ price, capture by origin, generation of CCGT with and without
+capture, duals — were computed by hand scripts (`keys.py`, `ptx_report.py
+--against`).
+
+**Decided.** Two reports.
+
+* A **scenario report** describes one run and links only within itself. It
+  opens on *Key figures* and writes `summary.csv` (long: `node, table, row, year,
+  value, unit`) and `summary.json` (versions, solve date, horizons, nodes, every
+  input with size and mtime, the number-changing settings, KPI digests, the
+  tables present) beside its pages.
+* A **comparison report** is built from the summary files of any set of runs —
+  never from their networks: key figures side by side with the difference to a
+  reference run, the comparison charts with a difference view, the parameter
+  sweeps (D22) and a provenance page.
+
+Both read numbers through one abstraction, `metrics.ScenarioData.table(node,
+key)`, implemented live (`ContextScenarioData`, from a `BuildContext`) and from
+disk (`SummaryScenarioData`). A key figure is a declared `Metric` with an id
+(`data/kpis.yaml`, merged by id with the project's `kpis:`), so the comparison
+shows exactly the number the scenario report showed, and a project adds its own
+figures — including from a table it writes itself (`source: csv`) — without code.
+
+**Why summaries rather than reopening the trees.** The comparison is cheap
+whatever the number of runs (pypsa-wal, three 1 h scenarios + six sweep points:
+20 s and 180 MB, against minutes and several GB per scenario), and it can combine
+runs solved on different machines by copying a few hundred kilobytes per run. A
+summary records what it was computed from, so staleness is *detected*
+(`stale`, `unverified`, `settings_differ`) and shown on the provenance page,
+instead of a vintage mix-up being silently drawn.
+
+**Why no scenario dropdown.** A report built alone cannot know which sibling
+reports exist, or where they will be published. Navigation between runs goes
+through the comparison: its tables link to each run's own pages, and
+`output.compare_url` links back.
+
+**Why a `balance` source.** The energy graph groups technologies for the Sankey
+(`fold_ccs_variants` folds CCGT CC into CCGT; ground and rooftop PV share an
+edge). A key figure needs the raw carrier, so `balance` reads annual supply,
+withdrawal, curtailment and potential by raw carrier on a set of buses.
+
+| | Pro | Con |
+|---|---|---|
+| **Per-run summary files + separate comparison (chosen)** | Scenario reports independent of build order; comparison cheap, cross-machine, provenance explicit; replaces hand-made key-figure tables | A summary can be stale (detected); a figure added after a run's build needs its table in the summary, a local `csv`, or `--recompute` |
+| *Status quo: every report loads every tree* | No new file | Build-order dependent, mixes vintages silently, loads N × networks, dead dropdown links |
+| *A shared database of results* | Queryable | A service to run, and a second source of truth beside the results trees |
+| *Scrape the published HTML / ChartData workbooks* | Nothing new written | Couples the comparison to presentation; numbers rounded and partial |
+
+**Reversibility: Medium** — the old overview builders are kept (ported to
+`ScenarioData`), so a combined report could be rebuilt by rendering the
+comparison pages into each scenario folder; the summary files are additive.
 

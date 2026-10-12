@@ -328,3 +328,111 @@ def _drop_small_columns(
         return supply
     keep = supply.columns[(supply.abs() >= min_mw).any()]
     return supply.loc[:, keep]
+
+
+# ---------------------------------------------------------------------------
+# Annual balance by raw carrier (key figures, summaries)
+# ---------------------------------------------------------------------------
+
+def bus_carriers(kind: str, aliases: dict[str, tuple[str, ...]] | None = None) -> tuple[str, ...]:
+    """Bus carriers named by ``kind``: an alias (``electricity``) or a literal."""
+    from ..metrics import BALANCE_CARRIERS
+
+    table = BALANCE_CARRIERS if aliases is None else aliases
+    return tuple(table.get(kind, (kind,)))
+
+
+def annual_balance(ctx: BuildContext, kind: str) -> dict[str, pd.DataFrame]:
+    """Annual energy through the ``kind`` buses of every node, by raw carrier.
+
+    Returns ``{node code: table}`` whose rows are ``supply:<carrier>`` (energy
+    injected into the buses), ``withdrawal:<carrier>`` (energy taken out, as a
+    positive number), ``curtailment:<carrier>`` and ``potential:<carrier>``
+    (available energy of variable generators) and whose columns are the
+    horizons, in MWh, weighted by ``snapshot_weightings.generators``.
+
+    Unlike :func:`energy_balance` the carriers are *not* grouped: the
+    dispatch charts fold ``CCGT CC`` into ``CCGT`` and rooftop into ground PV,
+    which is right for a picture and wrong for a key figure.  Each hour is
+    split into its positive and negative parts *after* summing a carrier, so a
+    storage unit's charge and discharge stay apart.
+
+    Computed by :func:`pypsa2html.metrics.horizon_pass`, horizon-major and
+    together with the other network-read tables, so a bounded network cache
+    loads each network once.
+    """
+    from ..metrics import horizon_pass
+
+    key = ("annual_balance", kind)
+    if key not in ctx._files:
+        horizon_pass(ctx, [f"balance.{kind}"])
+    return ctx._files[key]
+
+
+def balance_horizon(ctx: BuildContext, n, horizon: int, kind: str) -> dict[str, pd.Series]:
+    """One horizon of :func:`annual_balance`: ``{node code: Series}``."""
+    if not len(n.snapshots):
+        return {}
+    buses = n.buses.index[n.buses.carrier.isin(bus_carriers(kind))]
+    if buses.empty:
+        return {}
+    weights = n.snapshot_weightings.generators.reindex(n.snapshots).fillna(1.0)
+    resolver = ctx.resolver(horizon)
+    out: dict[str, pd.Series] = {}
+    for node in ctx.nodes:
+        locations = ctx.locations_for(node.code)
+        flows = _branch_flows(n, resolver, buses, locations)
+        flows = _one_port_flows(n, resolver, buses, locations, flows)
+        if len(flows.columns) and flows.columns.duplicated().any():
+            flows = flows.T.groupby(level=0, sort=False).sum().T
+        parts: dict[str, float] = {}
+        if len(flows.columns):
+            positive = flows.clip(lower=0).mul(weights, axis=0).sum()
+            negative = (-flows.clip(upper=0)).mul(weights, axis=0).sum()
+            for carrier in flows.columns:
+                parts[f"supply:{carrier}"] = float(positive[carrier])
+                parts[f"withdrawal:{carrier}"] = float(negative[carrier])
+        for carrier, (curtailed, potential) in _curtailment_by_carrier(
+            n, resolver, buses, locations, weights
+        ).items():
+            parts[f"curtailment:{carrier}"] = curtailed
+            parts[f"potential:{carrier}"] = potential
+        out[node.code] = pd.Series(parts, dtype=float)
+    return out
+
+
+def finalize_balance(by_year: dict[str, dict[str, pd.Series]]) -> dict[str, pd.DataFrame]:
+    """``{year: {node: Series}}`` -> ``{node: rows x years}``, zero rows dropped."""
+    nodes: dict[str, dict[str, pd.Series]] = {}
+    for year, per_node in by_year.items():
+        for code, series in per_node.items():
+            nodes.setdefault(code, {})[year] = series
+    out: dict[str, pd.DataFrame] = {}
+    for code, columns in nodes.items():
+        table = pd.DataFrame(columns).fillna(0.0)
+        out[code] = table.loc[(table.abs() > 1e-9).any(axis=1)]
+    return out
+
+
+def _curtailment_by_carrier(
+    n, resolver, buses: pd.Index, locations: list[str] | None, weights: pd.Series
+) -> dict[str, tuple[float, float]]:
+    """``{carrier: (curtailed MWh, available MWh)}`` of variable generators.
+
+    Only generators on ``buses`` with a ``p_max_pu`` time series count, so
+    solar *thermal* (a heat-bus generator) never enters an electricity
+    figure.
+    """
+    gens = n.generators.index[n.generators.bus.isin(buses)]
+    gens = gens.intersection(resolver.select_locations("generators", locations))
+    p_max = n.generators_t.p_max_pu
+    gens = gens.intersection(p_max.columns)
+    if not len(gens):
+        return {}
+    available = p_max[gens].multiply(n.generators.p_nom_opt[gens], axis=1)
+    dispatched = n.generators_t.p.reindex(columns=gens).fillna(0.0)
+    curtailed = (available - dispatched).clip(lower=0)
+    carriers = n.generators.carrier[gens]
+    avail = available.mul(weights, axis=0).sum().groupby(carriers).sum()
+    curt = curtailed.mul(weights, axis=0).sum().groupby(carriers).sum()
+    return {str(c): (float(curt[c]), float(avail[c])) for c in avail.index}
