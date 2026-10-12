@@ -17,6 +17,7 @@ See ``docs/DESIGN_DECISIONS.md`` (D2, D3) for the trade-offs.
 from __future__ import annotations
 
 import logging
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -288,10 +289,16 @@ class NodeResolver:
         on the component *name*.  Only for byte-comparison against old output.
     """
 
-    def __init__(self, network, strategy: str = "location"):
+    def __init__(self, network, strategy: str = "location", *, reload=None):
         if strategy not in ("location", "substring"):
             raise ValueError(f"unknown node resolution strategy {strategy!r}")
-        self.n = network
+        # With ``reload`` the resolver holds its network *weakly* and fetches it
+        # again (through the network cache) once it has been evicted.  A
+        # resolver cached for the whole build would otherwise keep every
+        # horizon's network alive past ``model.network_cache_size`` -- one
+        # pinned copy per horizon, plus the cache's own.
+        self._reload = reload
+        self._network = weakref.ref(network) if reload is not None else network
         self.strategy = strategy
         self._bus_location = (
             network.buses["location"] if "location" in network.buses.columns else None
@@ -301,6 +308,17 @@ class NodeResolver:
                 "strategy='location' requires a 'location' column on network.buses"
             )
         self._first_real_link_nodes: pd.Series | None = None
+
+    @property
+    def n(self):
+        """The network this resolver reads (reloaded if it was evicted)."""
+        if self._reload is None:
+            return self._network
+        network = self._network()
+        if network is None:
+            network = self._reload()
+            self._network = weakref.ref(network)
+        return network
 
     def _static(self, component: str) -> pd.DataFrame:
         return getattr(self.n, component)

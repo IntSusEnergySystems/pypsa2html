@@ -9,6 +9,7 @@ six networks resident simultaneously.
 
 from __future__ import annotations
 
+import gc
 import logging
 import re
 from collections import OrderedDict
@@ -30,7 +31,24 @@ _PATH_CACHE_MAX = _DEFAULT_PATH_CACHE_MAX
 
 def clear_path_cache() -> None:
     """Drop every network held in the process-wide path cache."""
-    _PATH_CACHE.clear()
+    if _PATH_CACHE:
+        _PATH_CACHE.clear()
+        _release()
+
+
+def _release() -> None:
+    """Free the networks just dropped from the cache, now.
+
+    A ``pypsa.Network`` is a reference cycle (each component and accessor
+    points back at the network), so dropping the cache's reference does not
+    free it: it waits for the cyclic garbage collector, which runs on Python
+    *object* counts, not bytes -- and a network is a few thousand objects
+    holding gigabytes of arrays.  Measured on pypsa-wal (2026-10-12), bound 2:
+    116 reloads left up to a dozen dead networks resident, 14.6 GB at peak.
+    A full collection costs a fraction of a second, against seconds to load
+    the network that replaces the evicted one.
+    """
+    gc.collect()
 
 
 def set_path_cache_max(maxsize: int | None) -> None:
@@ -52,9 +70,13 @@ def set_path_cache_max(maxsize: int | None) -> None:
 
 
 def _evict() -> None:
+    evicted_any = False
     while len(_PATH_CACHE) > _PATH_CACHE_MAX:
         evicted, _ = _PATH_CACHE.popitem(last=False)
+        evicted_any = True
         logger.debug("evicted %s from the network cache", evicted)
+    if evicted_any:
+        _release()
 
 
 def _load_network(path: Path):
@@ -68,9 +90,14 @@ def _load_network(path: Path):
     import pypsa  # imported here to keep `import pypsa2html` cheap
 
     # Make room before loading, so the bound holds at the peak too (the old
-    # entry would otherwise still be resident while the new one is read).
+    # entry would otherwise still be resident while the new one is read), and
+    # free it before reading: see _release.
+    evicted_any = False
     while _PATH_CACHE and len(_PATH_CACHE) >= _PATH_CACHE_MAX:
         _PATH_CACHE.popitem(last=False)
+        evicted_any = True
+    if evicted_any:
+        _release()
     logger.info("loading %s", path)
     network = pypsa.Network(str(path))
     _PATH_CACHE[key] = network
@@ -120,8 +147,10 @@ class NetworkCache:
 
     def clear(self) -> None:
         """Drop this scenario's networks from the process-wide cache."""
-        for path in self.paths.values():
-            _PATH_CACHE.pop(str(path.resolve()), None)
+        dropped = [_PATH_CACHE.pop(str(path.resolve()), None) for path in self.paths.values()]
+        if any(net is not None for net in dropped):
+            del dropped
+            _release()
 
 
 def discover_horizons(results_dir: Path, pattern: str, **fmt) -> list[int]:

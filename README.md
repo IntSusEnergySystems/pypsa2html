@@ -699,6 +699,13 @@ Before, the path cache kept up to 24 networks whatever the setting, and every
   tree exists on disk, for the scenario-comparison charts.~~ Since 2026-10-12 a
   scenario build reads its own networks only; the comparison reads the
   scenarios' summary files and flags mixed vintages (D24).
+* **2026-10-12: the bound now holds.** Two things kept evicted networks in RAM:
+  a `pypsa.Network` is a reference cycle, freed only when the cyclic collector
+  happens to run (now forced on eviction), and the per-horizon `NodeResolver`
+  cached for the whole build held its network (now a weak reference, reloaded
+  through the cache when needed). pypsa-wal `scen_central`, bound 2: Sankey pages
+  **14.7 GB → 2.7 GB** peak (116 loads, same time); a full scenario build stays at
+  2.7 GB over 330 loads. Unbounded builds are unchanged (3.4 GB).
 
 pypsa-wal full site: **~832 s → ~131 s** (12 network loads). Items 9–10:
 dispatch HTML is thinner (`dispatch_step_hours: 2`) and identical map PNGs are

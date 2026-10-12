@@ -73,10 +73,18 @@ class BuildContext:
         return pd.Series(gaps + [gaps[-1]], index=h, dtype=float)
 
     def resolver(self, horizon: int) -> NodeResolver:
+        """The cached :class:`NodeResolver` of one horizon.
+
+        It holds its network weakly (``reload``), so caching it for the whole
+        build does not pin the network past ``model.network_cache_size``.
+        """
         key = ("node_resolver", int(horizon), self.config.nodes.resolution)
         cached = self._files.get(key)
         if cached is None:
-            cached = NodeResolver(self.networks[horizon], self.config.nodes.resolution)
+            networks, h = self.networks, int(horizon)
+            cached = NodeResolver(
+                networks[h], self.config.nodes.resolution, reload=lambda: networks[h]
+            )
             self._files[key] = cached
         return cached
 
