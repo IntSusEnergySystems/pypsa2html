@@ -67,6 +67,14 @@ pages:
     title: Heat supply
     sections:
       - {id: heat_supply_mix,        title: How residential and tertiary heat demand is met, builder: heat.supply_mix, unit: TWh/year}
+      # District heating told as a year rather than as two weeks (the dispatch
+      # page keeps the weekly views). Absent where the node has no heat network.
+      - {id: dh_year,                title: District heating over the year,            builder: district_heating.year_view,            unit: GW}
+      - {id: dh_storage,             title: Thermal store through the year,             builder: district_heating.storage_year,         unit: '% of capacity'}
+      # Prices are those of a single region, so the two sections that read them
+      # skip the groups of regions and the study-wide sum.
+      - {id: dh_by_price,            title: Heat supplied at each electricity price,   builder: district_heating.by_price,              unit: GWh/year, scope: real}
+      - {id: dh_electric_heat,       title: "Is electric heat worth building?",          builder: district_heating.electric_heat_value,  unit: EUR/kW_th/year, scope: real}
 
   - id: costs
     title: Costs

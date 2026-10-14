@@ -93,8 +93,8 @@ load,costs,load shedding,68
 ^gas pipeline$,costs,H2 & gas pipelines,91
 ^gas pipeline new$,costs,H2 & gas pipelines,92
 ^H2 pipeline retrofitted$,costs,H2 & gas pipelines,93
-heat pump,capacities,power-to-heat,0
-resistive heater,capacities,power-to-heat,1
+heat pump,capacities,heat pump,0
+resistive heater,capacities,resistive heater,1
 ^H2 Electrolysis$,capacities,electrolysis,2
 ^methanation$,capacities,methanation,3
 ^helmeth$,capacities,methanation,4

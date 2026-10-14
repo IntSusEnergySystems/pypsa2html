@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from pypsa2html.charts.results import _POWER_TO_FUEL, _panel_title
+from pypsa2html.charts.results import _POWER_TO_FUEL, _POWER_TO_HEAT, _panel_title
 from pypsa2html.datafiles import load_taxonomy
 from pypsa2html.extract.capacity_filter import (
     electric_output_scaling,
@@ -290,7 +290,7 @@ def test_empty_network_returns_no_electric_factors():
 
 def test_panel_titles_flag_every_non_electric_axis():
     """Panels that are not GW_e must say so; the plain electric ones must not."""
-    assert _panel_title(["power-to-heat"]) == "Power-to-heat (thermal)"
+    assert _panel_title(_POWER_TO_HEAT) == "Power-to-heat (thermal)"
     assert _panel_title(_POWER_TO_FUEL) == "Power-to-fuel (input-rated)"
     for group in (["CCGT"], ["CHP"], ["nuclear"], ["solar"]):
         assert "(" not in _panel_title(group)

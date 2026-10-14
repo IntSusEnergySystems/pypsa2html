@@ -845,3 +845,71 @@ withdrawal, curtailment and potential by raw carrier on a set of buses.
 `ScenarioData`), so a combined report could be rebuilt by rendering the
 comparison pages into each scenario folder; the summary files are additive.
 
+## D25 — District heating is shown as a year, and "why not built" is an earnings figure
+
+**Problem.** The Dispatch page drew the district-heating bus for one winter and
+one summer week, with the store level on a second axis. A week shows how a network
+is balanced and hides what decides its design, and on the pypsa-wal central run
+three things were invisible in it:
+
+* the thermal store fills and empties over weeks to months (six full cycles a
+  year in 2050, filling through summer and autumn, empty in January–February),
+  so a February week caught it empty and a July week caught it filling;
+* electric boilers ran in ~1 000 hours of the year, in which electricity cost
+  about 10 EUR/MWh and heat almost nothing — no week contains that;
+* a **large heat pump was not built**, although its COP is three times a
+  boiler's. It earned 86 EUR/kW of heat per year against a cost of 105. Nothing
+  on a dispatch chart can say that, because a technology that is not built has no
+  dispatch.
+
+**Decided.** Four sections on the **Heat supply** page (`charts/district_heating`,
+data in `extract/district_heating`), all opening on the last horizon:
+
+1. *District heating over the year* — daily mean supply by source against the
+   demand line, the store's filling and release, the energy in the store, and
+   the electricity and heat prices of the day, on one shared time axis.
+2. *Thermal store through the year* — the store's level as a share of its
+   capacity, one panel per horizon, with cycles per year and a table.
+3. *Heat supplied at each electricity price* — the hours of the year sorted by
+   electricity price into ten equal groups, and the heat each source delivered in
+   each group, with the store's filling and release and the mean heat price.
+4. *Is electric heat worth building?* — for every electric heating technology
+   on the bus, what **one more MW** would earn at the solved prices (heat price
+   minus the cost of the electricity needed, summed over the hours where that is
+   positive, split by how dear heat was) against its annualised capital cost.
+
+**Why earnings and not "what the optimiser did".** The optimiser builds a link
+until the last MW earns exactly its capital cost, so a technology whose earnings
+fall short of its cost is not built, and one that reaches it is built to the
+point where it just pays. That is a statement about the *solved prices*, which
+are in the network (`buses_t.marginal_price`), so it can be computed for any
+technology — built or not — with no re-solve. The resistive boiler is a built-in
+check: it is built at the margin, so its earnings must equal its cost to the
+euro (they do, to 0.1 %, in every horizon of the pypsa-wal central run, and Germany's
+heat pump too). Earnings are **marginal**: a large new plant would lower the
+heat price in the hours it serves, so they bound what any added capacity could
+earn from above. The page says so.
+
+**Scope.** Prices belong to one region. Sections 3 and 4 are `scope: real`; the
+year view and the store chart sum the heat networks of a group but drop the price
+panel (the prices of different regions are not averaged).
+
+**Related.** `combine_charts(initial=...)` opens a dropdown chart on a chosen
+variant, with the menu's `active` entry following, so the page opens on the
+horizon where the network is largest instead of the first one. The capacity
+page's `power-to-heat` bar was split into **heat pump** and **resistive heater**
+(two rows of the `capacities` view, stacked, so the old total is still the bar's
+height; the key figure sums both); the cost and map views keep the combined
+group.
+
+| | Pro | Con |
+|---|---|---|
+| **Annual views plus an earnings test (chosen)** | Shows the store's cycle and when electric heat runs; says why a technology is absent; no new solve | Prices are duals, which readers must be told; earnings are marginal |
+| *More weeks (spring, autumn)* | Nothing new to explain | Still weeks; cannot show a store that cycles over a season, nor a technology that was not built |
+| *A heat map of the store* | Compact across horizons | Harder to read than a line; no values at a glance |
+| *Re-solve with the heat pump forced* | The true cost of forcing it | A solve per question; answers "what if", not "why not" |
+
+**Reversibility: High** — the four sections are manifest entries
+(`dh_year`, `dh_storage`, `dh_by_price`, `dh_electric_heat`); `plots:` switches any
+of them off and nothing else reads their modules.
+

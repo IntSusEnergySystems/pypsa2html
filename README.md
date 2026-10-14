@@ -337,10 +337,34 @@ the slice away from the connector lines.
 The Dispatch page carries the **district-heating bus alone**, winter and
 summer week, with CHP with and without capture, electric boilers and large heat
 pumps kept apart, the charging and discharging of pit / tank storage, and the
-storage level on a second axis — which is what explains a network that fills a
-seasonal store with electric boilers in summer.  Its display floor is 5 MW,
+storage level on a second axis.  Its display floor is 5 MW,
 not the 0.1 GW of the regional charts, which would erase most of a
 regional heat network.
+
+A week cannot show what a thermal store does over a year, when electric heat
+runs, or why a heat pump was not built, so the Heat supply page also tells the
+network **as a year** (see
+[D25](docs/DESIGN_DECISIONS.md#d25--district-heating-is-shown-as-a-year-and-why-not-built-is-an-earnings-figure)),
+in four sections that open on the last horizon:
+
+* **District heating over the year** — daily supply by source against the demand
+  line, the store's filling and release, the energy in the store, and the
+  electricity and heat prices, on one time axis;
+* **Thermal store through the year** — the store's level as a share of its
+  capacity, one panel per horizon, with its capacity, cycles per year and a table
+  (a store that fills and empties several times a year is a buffer for spells of
+  weeks, not a seasonal store);
+* **Heat supplied at each electricity price** — the year sorted into ten equal
+  groups of hours by electricity price, and what each source delivered in each
+  (electric heat in the cheap groups, CHP in the dear ones);
+* **Is electric heat worth building?** — what one more MW of each electric
+  heating technology would earn at the solved prices against its annualised
+  capital cost.  A technology that earns less than it costs is not built; one
+  built at the margin earns exactly its cost, which is the built-in check.
+
+The prices are the marginal prices (duals) of the solved network — the cost of
+one more MWh in that hour, not a tariff — so the two sections that read them
+(`dh_by_price`, `dh_electric_heat`) are shown for single regions only.
 
 ### Sensitivity analyses (parameter sweeps)
 
@@ -586,6 +610,7 @@ pair of rules is in [`examples/snakemake/`](examples/snakemake/).
 | Indicators, Sankeys, indicator charts | `indicators` `charts/base` `charts/sankey` `charts/indicators` | done, tested |
 | Costs, capacities, demands | `extract/tables` `charts/results` | done, tested |
 | Dispatch, maps, scenario overview | `charts/dispatch` `charts/maps` `charts/scenario` | done, tested |
+| District heating as a year (store, electricity-price groups, earnings test) | `extract/district_heating` `charts/district_heating` | new, tested |
 | EV charging (natural vs smart, V2G) | `extract/ev` `charts/ev` | new, tested |
 | Self-sufficiency (primary energy, electricity) | `indicators` `charts/indicators` `charts/scenario` | new, tested |
 | Sensitivity analyses (parameter sweeps) | `config` `pages` `charts/sensitivity` | new, tested |

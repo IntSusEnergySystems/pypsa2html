@@ -121,7 +121,7 @@ kpis:
   - {id: cap_electrolysis, group: Capacities, label: Electrolysis,
      source: capacity, kind: power, rows: [electrolysis]}
   - {id: cap_power_to_heat, group: Capacities, label: Power-to-heat,
-     source: capacity, kind: power, rows: [power-to-heat]}
+     source: capacity, kind: power, rows: [heat pump, resistive heater]}
   - {id: cap_ccs, group: Capacities, label: Carbon capture plants (fuel input),
      source: capacity, kind: ccs}
   - {id: storage_battery, group: Capacities, label: Stationary battery storage,

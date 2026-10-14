@@ -69,11 +69,18 @@ _SOLAR_PV: list[str] = [
     "solar PV (tracking)",
 ]
 
+#: The two ways of turning electricity into heat.  They used to be one
+#: ``power-to-heat`` bar; the split shows which of them the fleet is made of
+#: (a heat pump delivers three to four times the heat of a resistive heater per
+#: unit of electricity, and costs ten times as much per MW_th), and the panel
+#: stacks them so the old total is still the height of the bar.
+_POWER_TO_HEAT: list[str] = ["heat pump", "resistive heater"]
+
 #: Faceted capacity panels — port of ``create_capacity_chart`` groups.
 _POWER_GROUPS: list[list[str]] = [
     _SOLAR_PV,
     ["onshore wind", "offshore wind"],
-    ["power-to-heat"],
+    _POWER_TO_HEAT,
     _POWER_TO_FUEL,
     ["transmission lines"],
     ["nuclear"],
@@ -85,7 +92,7 @@ _POWER_GROUPS: list[list[str]] = [
 _POWER_GROUPS_AGGREGATE: list[list[str]] = [
     _SOLAR_PV,
     ["onshore wind", "offshore wind"],
-    ["power-to-heat"],
+    _POWER_TO_HEAT,
     _POWER_TO_FUEL,
     ["transmission lines"],
     ["CCGT"],
@@ -143,7 +150,7 @@ def _smart_capitalize(phrase: str) -> str:
 #: CHP, OCGT and nuclear share an axis with wind and solar Generators.  Two
 #: groups keep another convention and say so in their title:
 #:
-#: * ``power-to-heat`` is restated on the *heat* side by
+#: * the ``power-to-heat`` panel (heat pumps and resistive heaters) is restated on the *heat* side by
 #:   :func:`pypsa2html.extract.capacity_filter.heat_output_scaling` — heat-pump
 #:   ``p_nom`` is already MW_th and resistive heaters are scaled by their
 #:   efficiency — so the panel reads GW_th;
@@ -151,7 +158,8 @@ def _smart_capitalize(phrase: str) -> str:
 #:   GW_e of electricity drawn, Fischer-Tropsch and methanation in GW of H2
 #:   consumed.  Their fuel *output* is smaller by the conversion efficiency.
 _PANEL_UNIT_NOTE = {
-    "power-to-heat": "thermal",
+    "heat pump": "thermal",
+    "resistive heater": "thermal",
     "electrolysis": "input-rated",
     "methanation": "input-rated",
     "Fischer-Tropsch": "input-rated",
@@ -163,24 +171,10 @@ _PANEL_UNIT_NOTE = {
 #: neighbour; the members are named in the legend either way.
 _PANEL_TITLES: dict[tuple[str, ...], str] = {
     tuple(_POWER_TO_FUEL): "Power-to-fuel",
+    tuple(_POWER_TO_HEAT): "Power-to-heat",
     tuple(_SOLAR_PV): "Solar PV",
     ("onshore wind", "offshore wind"): "Wind",
 }
-
-#: Capacity panels drawn as one stacked bar per year rather than side-by-side
-#: bars.  Only PV: its three carriers are *additive* — they are the same fleet
-#: split by mounting, and the reader's first question is the Walloon PV total,
-#: which three separate bars force them to add by eye.  The other panels hold
-#: technologies that are alternatives to each other (onshore vs offshore wind,
-#: the three power-to-fuel routes competing for the same electricity), where a
-#: stack would invent a meaningless total.
-#:
-#: Capacity charts only.  Capacity *factors* are intensive: stacking three
-#: percentages would produce a number no technology has.  The utilisation
-#: panels also fold PV to a single ``solar`` bar (:data:`UTILISATION_FOLD`),
-#: so there is nothing to stack there in the first place.
-_STACKED_CAPACITY_PANELS: tuple[str, ...] = (_PANEL_TITLES[tuple(_SOLAR_PV)],)
-
 
 def _panel_title(techs: list[str]) -> str:
     title = _PANEL_TITLES.get(
@@ -190,6 +184,25 @@ def _panel_title(techs: list[str]) -> str:
     if notes:
         title += f" ({', '.join(notes)})"
     return title
+
+
+#: Capacity panels drawn as one stacked bar per year rather than side-by-side
+#: bars: PV and power-to-heat.  Their members are *additive* — PV's three
+#: carriers are the same fleet split by mounting, and heat pumps and resistive
+#: heaters are the same electric-heating fleet split by technology, both on one
+#: side of the meter (GW_th) — and the reader's first question is the total,
+#: which separate bars force them to add by eye.  The other panels hold
+#: technologies that are alternatives to each other (onshore vs offshore wind,
+#: the three power-to-fuel routes competing for the same electricity), where a
+#: stack would invent a meaningless total.
+#:
+#: Capacity charts only.  Capacity *factors* are intensive: stacking percentages
+#: would produce a number no technology has.  The utilisation panels also fold
+#: PV to a single ``solar`` bar (:data:`UTILISATION_FOLD`), and stack nothing.
+_STACKED_CAPACITY_PANELS: tuple[str, ...] = (
+    _PANEL_TITLES[tuple(_SOLAR_PV)],
+    _panel_title(_POWER_TO_HEAT),
+)
 
 
 def _expand_capacity_group(group: list[str], index) -> list[str]:

@@ -655,6 +655,7 @@ def combine_charts(
     *,
     title: str = "",
     menu_title: str = "",
+    initial: str | None = None,
 ) -> go.Figure | None:
     """Merge per-variant figures into one, switched by a dropdown.
 
@@ -683,10 +684,21 @@ def combine_charts(
     dropdown already says which view is on screen, and appending the button
     label to the title reprinted it a second time, in a long line that ran
     under the menu sitting at the same height.
+
+    ``initial`` is the label of the variant shown when the page opens (the
+    first one by default).  The merged figure then takes that variant's layout,
+    and the dropdown's ``active`` entry follows, so the menu never names a
+    variant other than the one on screen.  A label that matches no variant is
+    ignored.
     """
     usable = [(str(label), fig) for label, fig in figures if fig is not None]
     if not usable:
         return None
+    start = 0
+    if initial is not None:
+        labels = [label.lower() for label, _ in usable]
+        if str(initial).lower() in labels:
+            start = labels.index(str(initial).lower())
     if len(usable) == 1:
         only = usable[0][1]
         if title:
@@ -710,11 +722,12 @@ def combine_charts(
     for i, (_, fig) in enumerate(usable):
         for j, trace in enumerate(fig.data):
             clone = copy.deepcopy(trace)
-            clone.visible = bool(intent[i][j]) and i == 0
+            clone.visible = bool(intent[i][j]) and i == start
             merged.add_trace(clone)
-    # Axes, height and legend come from the first variant; its slider (if any)
-    # is replaced below, once the full trace count is known.
-    merged.update_layout(usable[0][1].layout)
+    # Axes, height and legend come from the first variant (the ``initial`` one
+    # when given); its slider (if any) is replaced below, once the full trace
+    # count is known.
+    merged.update_layout(usable[start][1].layout)
 
     # An annotation is a layout property too, so a variant's caption has to be
     # swapped by its own button -- otherwise variant 0's numbers stay on screen
@@ -725,7 +738,7 @@ def combine_charts(
         {name: _axis_spec(fig, name) for name in ("xaxis", "yaxis")}
         for _, fig in usable
     ]
-    axes_differ = any(spec != axis_specs[0] for spec in axis_specs[1:])
+    axes_differ = any(spec != axis_specs[start] for k, spec in enumerate(axis_specs) if k != start)
 
     buttons = []
     for i, (label, fig) in enumerate(usable):
@@ -750,7 +763,7 @@ def combine_charts(
                 step_visible[offsets[i] + j] = True
                 step.args[0]["visible"] = step_visible
             args[1]["sliders"] = [slider]
-            if i == 0:
+            if i == start:
                 merged.update_layout(sliders=[slider])
         buttons.append(
             {"args": args, "label": label[:1].upper() + label[1:], "method": "update"}
@@ -761,6 +774,7 @@ def combine_charts(
         margin=_header_margin(merged.layout.margin),
         updatemenus=[
             {
+                "active": start,
                 "buttons": buttons,
                 "direction": "down",
                 "showactive": True,

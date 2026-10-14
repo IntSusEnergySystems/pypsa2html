@@ -129,3 +129,47 @@ def test_capacity_factor_panels_are_never_stacked():
     )
     assert fig.layout.barmode == "group"
     assert len({t.offsetgroup for t in fig.data}) == len(fig.data)
+
+
+def test_power_to_heat_panel_splits_heat_pumps_from_resistive_heaters_and_stacks_them():
+    """One ``power-to-heat`` bar became two rows; the panel stacks, so the total survives.
+
+    Heat pumps (about 3 MW_th of heat per MW_e) and resistive heaters (one) say
+    different things about the heating system, and a single bar said neither.
+    """
+    from pypsa2html.charts.results import _POWER_TO_HEAT, _STACKED_CAPACITY_PANELS, _panel_title
+
+    assert _POWER_TO_HEAT == ["heat pump", "resistive heater"]
+    assert _panel_title(_POWER_TO_HEAT) in _STACKED_CAPACITY_PANELS
+    table = pd.DataFrame(
+        {"2030": [1200.0, 800.0], "2050": [4000.0, 1500.0]},
+        index=["heat pump", "resistive heater"],
+    )
+    fig = _faceted_capacity_chart(
+        table, _POWER_GROUPS, unit="GW", stacked_groups=_STACKED_CAPACITY_PANELS
+    )
+    by_name = {t.name: t for t in fig.data}
+    parts = [by_name["Heat pump"], by_name["Resistive heater"]]
+    assert len({t.offsetgroup for t in parts}) == 1, "the two must share a slot to stack"
+    assert [sum(v) for v in zip(*(t.y for t in parts))] == [2.0, 5.5]
+    assert "Power-to-heat (thermal)" in [a.text for a in fig.layout.annotations]
+
+
+def test_capacity_view_keeps_heat_pumps_and_resistive_heaters_apart():
+    from pypsa2html.charts.base import apply_tech_map
+
+    carriers = pd.Series([
+        "urban central air heat pump", "rural ground heat pump",
+        "urban central resistive heater", "residential rural resistive heater",
+    ])
+    mapped = apply_tech_map(carriers, "capacities").tolist()
+    assert mapped == ["heat pump", "heat pump", "resistive heater", "resistive heater"]
+    # The cost and map views still use the combined group.
+    assert set(apply_tech_map(carriers, "costs")) == {"power-to-heat"}
+
+
+def test_power_to_heat_key_figure_still_sums_both_rows():
+    from pypsa2html.metrics import load_kpis
+
+    kpi = next(k for k in load_kpis() if k.id == "cap_power_to_heat")
+    assert sorted(kpi.rows) == ["heat pump", "resistive heater"]
